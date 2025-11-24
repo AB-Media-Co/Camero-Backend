@@ -1,8 +1,6 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
-
 client_id = "85d36c2bc325efc60deb33dd709aee20"
 name = "camero-testing"
-application_url = "https://shopify.dev/apps/default-app-home"
+application_url = "https://camero.myabmedia.com"        # your live app URL
 embedded = true
 
 [build]
@@ -10,11 +8,15 @@ automatically_update_urls_on_dev = true
 include_config_on_deploy = true
 
 [webhooks]
-api_version = "2026-01"
+api_version = "2025-10"    # use a stable API version your code targets
+
+# subscribe to mandatory compliance webhooks
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "https://camero.myabmedia.com/api/shopify/webhooks"   # single endpoint root for compliance
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = ""
+scopes = "read_products,write_products,read_orders,read_customers"  # required scopes
 
 [auth]
-redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
+redirect_urls = [ "https://camero.myabmedia.com/api/shopify/callback" ]

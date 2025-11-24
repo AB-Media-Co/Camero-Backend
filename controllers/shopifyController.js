@@ -22,7 +22,7 @@ const verifyShopifyHMAC = (query, hmacHeader) => {
   return crypto.timingSafeEqual(genBuf, headerBuf);
 };
 
-// Verify webhook using raw Buffer and base64 HMAC (timing safe)
+// rawBodyBuffer is the Buffer from express.raw
 const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
   if (!rawBodyBuffer || !hmacHeader) return false;
   const digest = crypto.createHmac('sha256', config.shopifyApiSecret).update(rawBodyBuffer).digest('base64');
@@ -31,6 +31,7 @@ const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
   if (digestBuf.length !== headerBuf.length) return false;
   return crypto.timingSafeEqual(digestBuf, headerBuf);
 };
+
 
 
 // @desc    Shopify OAuth installation URL
