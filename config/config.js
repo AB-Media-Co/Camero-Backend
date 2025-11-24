@@ -11,7 +11,8 @@ export const config = {
   emailUser: process.env.EMAIL_USER || 'your-email@gmail.com',
   emailPassword: process.env.EMAIL_PASSWORD || 'your-app-password',
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
-    // ⭐ OpenAI - Make sure this exists
+  // ⭐ OpenAI - Make sure this exists
   defaultOpenAIKey: process.env.DEFAULT_OPENAI_KEY || 'sk-placeholder-key',
-  
+  shopifyApiSecret: process.env.shopifyApiSecret || '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',
+
 };
