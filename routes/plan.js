@@ -6,12 +6,15 @@ import {
   updatePlan,
   deletePlan,
   togglePlanFeature,
-  getAvailablePlans
+  getAvailablePlans,
+  getPlanMarketingInfo
 } from '../controllers/planController.js';
 import { protect } from '../middleware/auth.js';
 import { isSuperAdmin } from '../middleware/roleAuth.js';
 
 const router = express.Router();
+
+router.get('/marketing/info', getPlanMarketingInfo);
 
 router.use(protect);
 

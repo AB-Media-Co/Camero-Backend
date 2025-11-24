@@ -1,6 +1,14 @@
 import mongoose from 'mongoose';
 import { PLAN_TYPES, PLAN_FEATURES } from '../utils/constants.js';
 
+const slugify = (text = '') =>
+  text
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
 const planSchema = new mongoose.Schema(
   {
     name: {
@@ -9,10 +17,20 @@ const planSchema = new mongoose.Schema(
       unique: true,
       trim: true
     },
+    slug: {
+      type: String,
+      unique: true,
+      trim: true,
+      lowercase: true
+    },
     type: {
       type: String,
       enum: Object.values(PLAN_TYPES),
       default: PLAN_TYPES.FREE
+    },
+    order: {
+      type: Number,
+      default: 0
     },
     description: {
       type: String,
@@ -23,10 +41,85 @@ const planSchema = new mongoose.Schema(
       required: [true, 'Price is required'],
       default: 0
     },
+    priceMonthly: {
+      type: Number,
+      default: 0
+    },
+    priceAnnual: {
+      type: Number,
+      default: 0
+    },
+    savePercentAnnual: {
+      type: Number,
+      default: 0
+    },
     duration: {
       type: Number, // in days
       required: true,
       default: 30
+    },
+    visitorsPerMonth: {
+      type: Number,
+      default: 0
+    },
+    aiRepliesPerYear: {
+      type: Number,
+      default: 0
+    },
+    productsSupported: {
+      type: Number,
+      default: 0
+    },
+    customDataSources: {
+      type: Number,
+      default: 0
+    },
+    costPerExtra100Replies: {
+      type: Number,
+      default: 0
+    },
+    quickFeatures: [{
+      type: String
+    }],
+    badge: {
+      type: String,
+      trim: true
+    },
+    isPopular: {
+      type: Boolean,
+      default: false
+    },
+    includesInbox: {
+      type: Boolean,
+      default: false
+    },
+    advancedNudges: {
+      type: Boolean,
+      default: false
+    },
+    aiQuizBuilder: {
+      type: Boolean,
+      default: false
+    },
+    aiPdpEmbeds: {
+      type: Boolean,
+      default: false
+    },
+    supportChannels: {
+      type: String,
+      default: ''
+    },
+    personalisedAssistance: {
+      type: Boolean,
+      default: false
+    },
+    dedicatedExpert: {
+      type: Boolean,
+      default: false
+    },
+    setupAssistance: {
+      type: Boolean,
+      default: false
     },
     features: {
       messaging: {
@@ -89,6 +182,22 @@ const planSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+planSchema.pre('save', function (next) {
+  if (!this.slug && this.name) {
+    this.slug = slugify(this.name);
+  }
+  next();
+});
+
+planSchema.pre('findOneAndUpdate', function (next) {
+  const update = this.getUpdate();
+  if (update?.name && !update.slug) {
+    update.slug = slugify(update.name);
+    this.setUpdate(update);
+  }
+  next();
+});
 
 const Plan = mongoose.model('Plan', planSchema);
 

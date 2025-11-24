@@ -81,7 +81,6 @@
         </div>
       `;
 
-      // ... (Styles remain same as before) ...
       if (!document.getElementById('chat-widget-styles')) {
         const style = document.createElement('style');
         style.id = 'chat-widget-styles';
@@ -92,7 +91,7 @@
           #chat-messages::-webkit-scrollbar { width: 6px; }
           #chat-messages::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
           #chat-messages::-webkit-scrollbar-thumb { background: #17876E; border-radius: 10px; }
-          .typing-indicator { display:flex; gap:4px; padding:10px 0; }
+          .typing-indicator { display:flex; gap:4px; padding:10px 0; justify-content: flex-start; }
           .typing-indicator span { width:8px; height:8px; background:#999; border-radius:50%; animation:bounce 1.4s infinite; }
           .typing-indicator span:nth-child(2) { animation-delay:0.2s; }
           .typing-indicator span:nth-child(3) { animation-delay:0.4s; }
@@ -199,7 +198,6 @@
     renderHistory(messages) {
         const messagesDiv = document.getElementById('chat-messages');
         if (!messagesDiv) return;
-        // messagesDiv.innerHTML = ''; // Optional: clear welcome message
         
         messages.forEach(msg => {
             this.appendMessageToUI(msg.role, msg.message);
@@ -207,7 +205,6 @@
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
-    // ... (renderChatWindow, showLoading, showError, etc. remain same) ...
     showLoading() {
       const container = document.getElementById('chat-window-container');
       container.style.display = 'block';
@@ -215,17 +212,39 @@
     }
 
     showError(msg) {
-       // ... your existing error logic ...
        const container = document.getElementById('chat-window-container');
        container.innerHTML = `<div style="padding:20px;background:white;height:200px;">Error: ${msg}</div>`;
     }
 
     renderChatWindow() {
         const container = document.getElementById('chat-window-container');
+        // *** MODIFIED: Capitalized Bot Name ***
+        const botName = (this.config.assistantName || 'AI Assistant').toUpperCase(); 
+        
+        // Get avatar path - handle different formats correctly with full URL
+        let avatarFileName = this.config.avatar || 'a1.svg';
+        
+
+        
+        if (avatarFileName.startsWith('/loginassets/')) {
+            // Already has the full path, just use it as is
+            avatarFileName = avatarFileName.substring(13); // Remove '/loginassets/' prefix
+        } else if (avatarFileName.startsWith('avatar-')) {
+            // Convert avatar-1.png format to a1.svg format
+            const avatarNumber = avatarFileName.replace('avatar-', '').replace('.png', '');
+            avatarFileName = `a${avatarNumber}.svg`;
+        }
+        
+        // Use full URL path for avatar
+        const avatarPath = `${this.apiUrl.replace('/api/widget', '')}/loginassets/${avatarFileName}`;
+
         container.innerHTML = `
           <div style="width: 380px; height: 600px; background: white; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); display: flex; flex-direction: column; animation: slideUp 0.3s ease;">
             <div style="padding: 1rem; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-              <div style="font-weight: bold;">${this.config.assistantName}</div>
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <img src="${avatarPath}" alt="Assistant Avatar" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
+                <div style="font-weight: bold;">${botName}</div>
+              </div>
               <button id="close-chat" style="background:none;border:none;font-size:20px;cursor:pointer;">×</button>
             </div>
             <div id="chat-messages" style="flex: 1; padding: 1rem; overflow-y: auto;">
@@ -235,6 +254,7 @@
                  </div>
                </div>
             </div>
+            <div id="typing-placeholder" style="padding: 0 1rem;"></div>
             <div style="padding: 1rem; border-top: 1px solid #eee; display: flex; gap: 8px;">
               <input id="chat-input" type="text" placeholder="Type..." style="flex:1; padding:10px; border:1px solid #ddd; border-radius:8px;" />
               <button id="send-btn" style="padding:10px 15px; background:${this.config.interfaceColor}; color:white; border:none; border-radius:8px; cursor:pointer;">Send</button>
@@ -259,6 +279,28 @@
         const color = role === 'user' ? '#fff' : '#000';
         div.innerHTML = `<div style="background:${bg}; color:${color}; padding:10px 14px; border-radius:12px; max-width:85%; box-shadow:0 1px 2px rgba(0,0,0,0.1);">${text}</div>`;
         messagesDiv.appendChild(div);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    // --- NEW TYPING INDICATOR METHODS ---
+    showTypingIndicator() {
+        const placeholder = document.getElementById('typing-placeholder');
+        if (placeholder) {
+            placeholder.innerHTML = `
+                <div class="typing-indicator">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            `;
+        }
+    }
+
+    hideTypingIndicator() {
+        const placeholder = document.getElementById('typing-placeholder');
+        if (placeholder) {
+            placeholder.innerHTML = '';
+        }
     }
 
     async sendMessage() {
@@ -269,8 +311,7 @@
       this.appendMessageToUI('user', message);
       input.value = '';
       
-      // Show typing placeholder
-      // ... 
+      this.showTypingIndicator();
 
       try {
         // 4. SEND IP TO BACKEND IN SENDMESSAGE
@@ -285,15 +326,21 @@
           })
         }, 20000);
 
+        this.hideTypingIndicator(); // Hide indicator when response starts arriving
+
         const data = await response.json();
         if (data.success) {
           this.appendMessageToUI('bot', data.data.message);
           // If backend corrected the sessionId, update it
           if(data.data.sessionId) this.sessionId = data.data.sessionId;
+        } else {
+            // Handle API specific errors if needed
+            this.appendMessageToUI('bot', data.message || 'An error occurred processing your request.');
         }
       } catch (error) {
         console.error(error);
-        this.appendMessageToUI('bot', 'Error sending message.');
+        this.hideTypingIndicator(); 
+        this.appendMessageToUI('bot', 'Connection error. Could not get a response.');
       }
     }
   }

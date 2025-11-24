@@ -27,12 +27,10 @@ const verifyShopifyHMAC = (query, hmac) => {
 
 // Verify Shopify webhook
 const verifyShopifyWebhook = (data, hmac) => {
-  const hash = crypto
+  return crypto
     .createHmac('sha256', config.shopifyApiSecret)
     .update(data, 'utf8')
-    .digest('base64');
-  
-  return hash === hmac;
+    .digest('base64') === hmac;
 };
 
 // @desc    Shopify OAuth installation URL
@@ -108,7 +106,7 @@ export const shopifyCallback = async (req, res) => {
     const shopData = shopInfoResponse.data.shop;
 
     // Get default plan for Shopify users
-    let defaultPlan = await Plan.findOne({ 
+    let defaultPlan = await Plan.findOne({
       isActive: true,
       $or: [
         { name: { $regex: /free|trial|shopify/i } },
@@ -144,7 +142,7 @@ export const shopifyCallback = async (req, res) => {
     if (!user) {
       // Create new user
       const randomPassword = crypto.randomBytes(32).toString('hex');
-      
+
       user = await User.create({
         name: shopData.shop_owner || shopData.name,
         email: shopData.email,
@@ -198,7 +196,7 @@ export const shopifyCallback = async (req, res) => {
       };
       user.storeUrl = `https://${shop}`;
       await user.save();
-      
+
       console.log('✅ Existing user updated:', user.email);
     }
 
@@ -220,7 +218,7 @@ export const shopifyCallback = async (req, res) => {
 
     // Redirect to success page with user's API key
     const apiKey = await ApiKey.findOne({ user: user._id });
-    
+
     res.send(`
       <!DOCTYPE html>
       <html>
@@ -401,17 +399,17 @@ const syncShopifyProducts = async (userId, shopDomain, accessToken) => {
 // Register Shopify webhooks
 const registerShopifyWebhooks = async (shop, accessToken) => {
   const webhooks = [
-    { 
-      topic: 'products/create', 
-      address: `${config.backendUrl}/api/shopify/webhooks/products` 
+    {
+      topic: 'products/create',
+      address: `${config.backendUrl}/api/shopify/webhooks/products`
     },
-    { 
-      topic: 'products/update', 
-      address: `${config.backendUrl}/api/shopify/webhooks/products` 
+    {
+      topic: 'products/update',
+      address: `${config.backendUrl}/api/shopify/webhooks/products`
     },
-    { 
-      topic: 'products/delete', 
-      address: `${config.backendUrl}/api/shopify/webhooks/products` 
+    {
+      topic: 'products/delete',
+      address: `${config.backendUrl}/api/shopify/webhooks/products`
     }
   ];
 
@@ -453,6 +451,13 @@ export const handleProductWebhook = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid webhook' });
     }
 
+    // req.body is a Buffer because of express.raw
+    const rawBodyBuffer = req.body;
+    if (!rawBodyBuffer || !verifyShopifyWebhook(rawBodyBuffer, hmac)) {
+      return res.status(401).json({ success: false, message: 'Invalid webhook' });
+    }
+
+
     // Find user by shop
     const user = await User.findOne({ 'shopifyData.shopDomain': shop });
 
@@ -461,7 +466,8 @@ export const handleProductWebhook = async (req, res) => {
       return res.status(200).json({ success: true, message: 'User not found' });
     }
 
-    const product = req.body;
+    const product = JSON.parse(rawBodyBuffer.toString('utf8'));
+
 
     if (topic === 'products/delete') {
       // Remove product
@@ -470,7 +476,7 @@ export const handleProductWebhook = async (req, res) => {
         { $pull: { products: { productId: product.id.toString() } } }
       );
       console.log(`🗑️ Product deleted: ${product.id}`);
-      
+
     } else {
       // Update or create product
       let knowledge = await ProductKnowledge.findOne({ user: user._id });

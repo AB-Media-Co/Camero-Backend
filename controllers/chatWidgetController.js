@@ -58,6 +58,9 @@ export const checkCustomer = async (req, res) => {
 
     const apiKey = await ApiKey.findOne({ key: apiKeyString }).populate('user', '_id assistantConfig');
     if (!apiKey || !apiKey.isActive) return res.status(401).json({ success: false, message: 'Invalid API key' });
+    
+    // Check if user exists
+    if (!apiKey.user) return res.status(401).json({ success: false, message: 'API key not associated with a user' });
 
     // Prefer server-detected IP; fallback to client-provided ip/query
     const serverIp = getIpAddress(req);
@@ -95,7 +98,7 @@ export const checkCustomer = async (req, res) => {
       assistantName: apiKey.user.assistantConfig?.name || 'AI Assistant',
       personality: apiKey.user.assistantConfig?.personality || 'professional',
       interfaceColor: apiKey.user.assistantConfig?.interfaceColor || '#17876E',
-      avatar: apiKey.user.assistantConfig?.avatar || 'avatar-1.png',
+      avatar: apiKey.user.assistantConfig?.avatar || 'a1.svg', // Added avatar
       position: apiKey.widgetSettings?.position || 'bottom-right',
       welcomeMessage: `Hi! I'm ${apiKey.user.assistantConfig?.name || 'AI Assistant'}. How can I help you today?`
     };
@@ -137,6 +140,9 @@ export const initChatSession = async (req, res) => {
 
     const apiKey = await ApiKey.findOne({ key: apiKeyString }).populate('user');
     if (!apiKey || !apiKey.isActive) return res.status(401).json({ success: false, message: 'Invalid API key' });
+    
+    // Check if user exists
+    if (!apiKey.user) return res.status(401).json({ success: false, message: 'API key not associated with a user' });
 
     // 1. IP Address nikalo
     const serverIp = getIpAddress(req);
@@ -147,6 +153,7 @@ export const initChatSession = async (req, res) => {
     const config = {
       assistantName: apiKey.user.assistantConfig?.name || 'AI Assistant',
       interfaceColor: apiKey.user.assistantConfig?.interfaceColor || '#17876E',
+      avatar: apiKey.user.assistantConfig?.avatar || 'a1.svg', // Added avatar
       welcomeMessage: `Hi! I'm ${apiKey.user.assistantConfig?.name || 'AI Assistant'}. How can I help you today?`,
     };
 
@@ -417,8 +424,9 @@ export const getAllConversations = async (req, res) => {
   try {
     const userId = req.user._id;
 
-    // Sabse latest chats pehle
+    // Sabse latest chats pehle - include conversation array
     const conversations = await ChatConversation.find({ user: userId })
+      .select('sessionId ip customerId conversation status createdAt updatedAt metadata')
       .sort({ updatedAt: -1 });
     // console.log('Conversations found:', conversations);
 

@@ -208,3 +208,191 @@ export const getAvailablePlans = async (req, res) => {
     });
   }
 };
+
+const formatNumber = (value, { allowZeroUnlimited = true, suffix = '' } = {}) => {
+  if (value === null || value === undefined) return '—';
+  if (allowZeroUnlimited && value === 0) return 'Unlimited';
+  return `${Number(value).toLocaleString()}${suffix}`;
+};
+
+const buildRowValues = (plans, accessor, formatter = (val) => val) => {
+  const values = {};
+  plans.forEach((plan) => {
+    values[plan.slug || plan._id.toString()] = formatter(accessor(plan));
+  });
+  return values;
+};
+
+// @desc    Marketing data for Manage Plans UI
+// @route   GET /api/plans/marketing/info
+// @access  Public
+export const getPlanMarketingInfo = async (req, res) => {
+  try {
+    const plans = await Plan.find({ isActive: true })
+      .sort({ order: 1, priceMonthly: 1, price: 1 })
+      .lean();
+
+    if (!plans.length) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          plans: [],
+          comparisonSections: [],
+          faqs: [],
+          testimonial: null,
+          billing: null
+        }
+      });
+    }
+
+    const formattedPlansRaw = plans.map((plan) => ({
+      id: plan.slug || plan._id.toString(),
+      slug: plan.slug || plan._id.toString(),
+      name: plan.name,
+      description: plan.description,
+      highlight: plan.isPopular,
+      badge: plan.badge || null,
+      price: {
+        monthly: plan.priceMonthly || plan.price || 0,
+        annual: plan.priceAnnual || 0
+      },
+      savePercentAnnual: plan.savePercentAnnual || 0,
+      visitorsPerMonth: plan.visitorsPerMonth,
+      aiRepliesPerYear: plan.aiRepliesPerYear,
+      productsSupported: plan.productsSupported,
+      customDataSources: plan.customDataSources,
+      costPerExtra100Replies: plan.costPerExtra100Replies,
+      quickFeatures: plan.quickFeatures || [],
+      includesInbox: plan.includesInbox,
+      advancedNudges: plan.advancedNudges,
+      aiQuizBuilder: plan.aiQuizBuilder,
+      aiPdpEmbeds: plan.aiPdpEmbeds,
+      supportChannels: plan.supportChannels,
+      personalisedAssistance: plan.personalisedAssistance,
+      dedicatedExpert: plan.dedicatedExpert,
+      setupAssistance: plan.setupAssistance
+    }));
+
+    let formattedPlans = formattedPlansRaw.filter(
+      (plan) => Array.isArray(plan.quickFeatures) && plan.quickFeatures.length
+    );
+
+    if (!formattedPlans.length) {
+      formattedPlans = formattedPlansRaw.slice(0, 4);
+    }
+
+    const comparisonSections = [
+      {
+        title: 'Core capacity',
+        rows: [
+          {
+            label: 'AI chatbot replies',
+            values: buildRowValues(formattedPlans, (plan) => plan.aiRepliesPerYear, (val) => val ? `${formatNumber(val, { allowZeroUnlimited: true })}/year` : '—')
+          },
+          {
+            label: 'Cost per additional 100 AI replies',
+            values: buildRowValues(formattedPlans, (plan) => plan.costPerExtra100Replies, (val) => val ? `$${Number(val).toFixed(2)}` : '—')
+          },
+          {
+            label: 'Inbox to view AI conversations & sources',
+            values: buildRowValues(formattedPlans, (plan) => plan.includesInbox, (val) => Boolean(val))
+          }
+        ]
+      },
+      {
+        title: 'Train your assistant to perfection',
+        rows: [
+          {
+            label: 'Number of products supported',
+            values: buildRowValues(formattedPlans, (plan) => plan.productsSupported, (val) => formatNumber(val, { allowZeroUnlimited: true, suffix: ' products' }))
+          },
+          {
+            label: 'Custom data sources',
+            values: buildRowValues(formattedPlans, (plan) => plan.customDataSources, (val) => formatNumber(val, { allowZeroUnlimited: true, suffix: ' sources' }))
+          },
+          {
+            label: 'Advanced AI nudges',
+            values: buildRowValues(formattedPlans, (plan) => plan.advancedNudges, (val) => Boolean(val))
+          },
+          {
+            label: 'AI-powered quiz builder',
+            values: buildRowValues(formattedPlans, (plan) => plan.aiQuizBuilder, (val) => Boolean(val))
+          },
+          {
+            label: 'AI-powered PDP embeds',
+            values: buildRowValues(formattedPlans, (plan) => plan.aiPdpEmbeds, (val) => Boolean(val))
+          }
+        ]
+      },
+      {
+        title: 'Customer success',
+        rows: [
+          {
+            label: 'Support channels',
+            values: buildRowValues(formattedPlans, (plan) => plan.supportChannels || 'Email support')
+          },
+          {
+            label: 'Personalised assistance to improve AI responses',
+            values: buildRowValues(formattedPlans, (plan) => plan.personalisedAssistance, (val) => Boolean(val))
+          },
+          {
+            label: 'Dedicated AI expert',
+            values: buildRowValues(formattedPlans, (plan) => plan.dedicatedExpert, (val) => Boolean(val))
+          },
+          {
+            label: 'AI setup & go-live assistance',
+            values: buildRowValues(formattedPlans, (plan) => plan.setupAssistance, (val) => Boolean(val))
+          }
+        ]
+      }
+    ];
+
+    const faqs = [
+      {
+        question: 'What happens if my customer wants to chat live and not with AI?',
+        answer: 'You can hand off the conversation to Shopify Inbox, Gorgias live chat, or any connected channel so a human agent can continue the chat without losing context.'
+      },
+      {
+        question: 'Why do I see the app spending limit higher than the plan amount?',
+        answer: 'The spending limit is simply a safeguard to cover extra usage if you exceed your reply quota. You are charged only for your selected plan unless you go over the limit.'
+      },
+      {
+        question: 'Do you offer referral commissions?',
+        answer: 'Yes. Contact our support team to enroll in the referral program and earn commissions for each store you bring on board.'
+      },
+      {
+        question: 'How do refunds work?',
+        answer: 'You can cancel anytime. If you cancel mid-cycle, we credit the unused portion back to your account according to our fair billing policy.'
+      }
+    ];
+
+    const testimonial = {
+      quote: '“Manifest AI is wonderful. I am a one-person operation and Manifest handles customer conversations even when I sleep.”',
+      author: 'Fair & White',
+      role: 'US cosmetics brand'
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        billing: {
+          defaultCycle: 'annual',
+          badge: 'Save up to 17%',
+          options: [
+            { id: 'monthly', label: 'Monthly' },
+            { id: 'annual', label: 'Annual' }
+          ]
+        },
+        plans: formattedPlans,
+        comparisonSections,
+        testimonial,
+        faqs
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

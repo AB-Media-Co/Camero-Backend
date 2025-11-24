@@ -17,6 +17,7 @@ import widgetRoutes from './routes/widgetRoutes.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { initializeSocket } from './socket/socketHandler.js';
+import shopifyController from './controllers/shopifyController.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,6 +52,12 @@ app.use(cors({
   credentials: true,
 }));
 
+app.post(
+  '/api/shopify/webhooks/products',
+  express.raw({ type: 'application/json' }),
+  shopifyController.handleProductWebhook
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -77,8 +84,6 @@ app.get('/widget.js', (req, res) => {
 const reactBuildPath = path.join(__dirname, 'client', 'build');
 app.use(express.static(reactBuildPath));
 
-// If you want the widget to be part of the build, you can also copy widget.js into client/build during your build step.
-// But leaving it in /public keeps it decoupled and easy to update.
 
 // --------- API Routes ----------
 app.use('/api/auth', authRoutes);

@@ -43,7 +43,7 @@ export const getDashboardAnalytics = async (req, res) => {
       createdAt: { $gte: startDate, $lte: endDate }
     });
 
-    // Total messages
+    // Total messages - using 'conversation' field instead of 'messages'
     const messagePipeline = await ChatConversation.aggregate([
       {
         $match: {
@@ -53,7 +53,7 @@ export const getDashboardAnalytics = async (req, res) => {
       },
       {
         $project: {
-          messageCount: { $size: '$messages' }
+          messageCount: { $size: { $ifNull: ['$conversation', []] } }
         }
       },
       {
