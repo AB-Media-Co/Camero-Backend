@@ -52,11 +52,31 @@ app.use(cors({
   credentials: true,
 }));
 
+// Shopify webhooks must use raw body parser to verify HMAC
 app.post(
   '/api/shopify/webhooks/products',
   express.raw({ type: 'application/json' }),
   shopifyController.handleProductWebhook
 );
+
+app.post(
+  '/api/shopify/webhooks/customers_data_request',
+  express.raw({ type: 'application/json' }),
+  shopifyController.handleCustomersDataRequest
+);
+
+app.post(
+  '/api/shopify/webhooks/customers_redact',
+  express.raw({ type: 'application/json' }),
+  shopifyController.handleCustomersRedact
+);
+
+app.post(
+  '/api/shopify/webhooks/shop_redact',
+  express.raw({ type: 'application/json' }),
+  shopifyController.handleShopRedact
+);
+
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

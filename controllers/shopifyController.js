@@ -1,37 +1,37 @@
 // controllers/shopifyController.js
 import crypto from 'crypto';
-import axios from 'axios';
+import { config } from '../config/config.js'; // ensure config import exists
 import User from '../models/User.js';
-import Plan from '../models/Plan.js';
-import ApiKey from '../models/ApiKey.js';
-import ProductKnowledge from '../models/ProductKnowledge.js';
-import UserActivity from '../models/UserActivity.js';
-import { config } from '../config/config.js';
-import { ROLES, PLAN_STATUS } from '../utils/constants.js';
 
-// Verify Shopify HMAC
-const verifyShopifyHMAC = (query, hmac) => {
+// Verify OAuth query HMAC (safe compare)
+// keeps existing query-based verification but uses timingSafeEqual
+const verifyShopifyHMAC = (query, hmacHeader) => {
+  if (!query || !hmacHeader) return false;
+
   const message = Object.keys(query)
     .filter(key => key !== 'hmac' && key !== 'signature')
     .sort()
     .map(key => `${key}=${query[key]}`)
     .join('&');
 
-  const generatedHash = crypto
-    .createHmac('sha256', config.shopifyApiSecret)
-    .update(message)
-    .digest('hex');
+  const generated = crypto.createHmac('sha256', config.shopifyApiSecret).update(message).digest('hex');
+  const genBuf = Buffer.from(generated, 'utf8');
+  const headerBuf = Buffer.from(hmacHeader || '', 'utf8');
 
-  return generatedHash === hmac;
+  if (genBuf.length !== headerBuf.length) return false;
+  return crypto.timingSafeEqual(genBuf, headerBuf);
 };
 
-// Verify Shopify webhook
-const verifyShopifyWebhook = (data, hmac) => {
-  return crypto
-    .createHmac('sha256', config.shopifyApiSecret)
-    .update(data, 'utf8')
-    .digest('base64') === hmac;
+// Verify webhook using raw Buffer and base64 HMAC (timing safe)
+const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
+  if (!rawBodyBuffer || !hmacHeader) return false;
+  const digest = crypto.createHmac('sha256', config.shopifyApiSecret).update(rawBodyBuffer).digest('base64');
+  const digestBuf = Buffer.from(digest, 'utf8');
+  const headerBuf = Buffer.from(hmacHeader || '', 'utf8');
+  if (digestBuf.length !== headerBuf.length) return false;
+  return crypto.timingSafeEqual(digestBuf, headerBuf);
 };
+
 
 // @desc    Shopify OAuth installation URL
 // @route   GET /api/shopify/install
@@ -396,28 +396,26 @@ const syncShopifyProducts = async (userId, shopDomain, accessToken) => {
   }
 };
 
-// Register Shopify webhooks
 const registerShopifyWebhooks = async (shop, accessToken) => {
   const webhooks = [
-    {
-      topic: 'products/create',
-      address: `${config.backendUrl}/api/shopify/webhooks/products`
-    },
-    {
-      topic: 'products/update',
-      address: `${config.backendUrl}/api/shopify/webhooks/products`
-    },
-    {
-      topic: 'products/delete',
-      address: `${config.backendUrl}/api/shopify/webhooks/products`
-    }
+    { topic: 'products/create', address: `${config.backendUrl}/api/shopify/webhooks/products` },
+    { topic: 'products/update', address: `${config.backendUrl}/api/shopify/webhooks/products` },
+    { topic: 'products/delete', address: `${config.backendUrl}/api/shopify/webhooks/products` }
   ];
 
-  for (const webhook of webhooks) {
+  const complianceHooks = [
+    { topic: 'customers/data_request', address: `${config.backendUrl}/api/shopify/webhooks/customers_data_request` },
+    { topic: 'customers/redact', address: `${config.backendUrl}/api/shopify/webhooks/customers_redact` },
+    { topic: 'shop/redact', address: `${config.backendUrl}/api/shopify/webhooks/shop_redact` }
+  ];
+
+  const allHooks = [...webhooks, ...complianceHooks];
+
+  for (const hook of allHooks) {
     try {
       await axios.post(
         `https://${shop}/admin/api/2024-01/webhooks.json`,
-        { webhook },
+        { webhook: hook },
         {
           headers: {
             'X-Shopify-Access-Token': accessToken,
@@ -425,16 +423,18 @@ const registerShopifyWebhooks = async (shop, accessToken) => {
           }
         }
       );
-      console.log(`✅ Registered webhook: ${webhook.topic}`);
+      console.log(`✅ Registered webhook: ${hook.topic}`);
     } catch (error) {
+      // existing behavior: if already exists, skip
       if (error.response?.data?.errors?.address) {
-        console.log(`ℹ️ Webhook already exists: ${webhook.topic}`);
+        console.log(`ℹ️ Webhook already exists: ${hook.topic}`);
       } else {
-        console.error(`❌ Failed to register webhook ${webhook.topic}:`, error.message);
+        console.error(`❌ Failed to register webhook ${hook.topic}:`, error.message);
       }
     }
   }
 };
+
 
 // @desc    Handle Shopify product webhooks
 // @route   POST /api/shopify/webhooks/products
@@ -445,30 +445,25 @@ export const handleProductWebhook = async (req, res) => {
     const topic = req.headers['x-shopify-topic'];
     const shop = req.headers['x-shopify-shop-domain'];
 
+
     // Verify webhook
     const rawBody = JSON.stringify(req.body);
     if (!verifyShopifyWebhook(rawBody, hmac)) {
       return res.status(401).json({ success: false, message: 'Invalid webhook' });
     }
-
-    // req.body is a Buffer because of express.raw
     const rawBodyBuffer = req.body;
     if (!rawBodyBuffer || !verifyShopifyWebhook(rawBodyBuffer, hmac)) {
       return res.status(401).json({ success: false, message: 'Invalid webhook' });
     }
 
-
-    // Find user by shop
+    // Find user by shop BEFORE using user._id
     const user = await User.findOne({ 'shopifyData.shopDomain': shop });
-
     if (!user) {
       console.log(`⚠️ No user found for shop: ${shop}`);
       return res.status(200).json({ success: true, message: 'User not found' });
     }
 
     const product = JSON.parse(rawBodyBuffer.toString('utf8'));
-
-
     if (topic === 'products/delete') {
       // Remove product
       await ProductKnowledge.updateOne(
@@ -592,10 +587,95 @@ export const getShopifyStatus = async (req, res) => {
   }
 };
 
+
+// controllers/shopifyController.js (add before export default)
+export const handleCustomersDataRequest = async (req, res) => {
+  try {
+    const raw = req.body; // Buffer from express.raw
+    const hmac = req.headers['x-shopify-hmac-sha256'];
+    if (!verifyShopifyWebhook(raw, hmac)) return res.status(401).end();
+
+    // parse payload if needed
+    const payload = JSON.parse(raw.toString('utf8'));
+
+    // Minimal behavior: acknowledge the request quickly.
+    // You may want to queue an export to run async and respond immediately.
+    console.log('📩 customers/data_request received for', payload);
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('❌ customers/data_request error', err);
+    return res.status(500).end();
+  }
+};
+
+export const handleCustomersRedact = async (req, res) => {
+  try {
+    const raw = req.body;
+    const hmac = req.headers['x-shopify-hmac-sha256'];
+    if (!verifyShopifyWebhook(raw, hmac)) return res.status(401).end();
+
+    const payload = JSON.parse(raw.toString('utf8'));
+    console.log('🗑️ customers/redact', payload);
+
+    // Perform data redaction/deletion for the customer
+    // Example: remove product knowledge and personal data for matching email/shop
+    // Use safe queries; payload may include customer object or email
+    if (payload.customer?.email) {
+      await ProductKnowledge.updateMany(
+        { 'userEmail': payload.customer.email }, // adjust to your schema
+        { $unset: { /* fields to remove */ } }
+      );
+    }
+
+    // Or find user by shop and remove PII
+    await User.updateMany(
+      { 'shopifyData.shopDomain': payload.shop_domain || '' },
+      { $unset: { /* fields to remove */ }, $set: { isActive: false } }
+    );
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('❌ customers/redact error', err);
+    return res.status(500).end();
+  }
+};
+
+export const handleShopRedact = async (req, res) => {
+  try {
+    const raw = req.body;
+    const hmac = req.headers['x-shopify-hmac-sha256'];
+    if (!verifyShopifyWebhook(raw, hmac)) return res.status(401).end();
+
+    const payload = JSON.parse(raw.toString('utf8'));
+    console.log('🏷️ shop/redact', payload);
+
+    // Delete or anonymize any data tied to this shop
+    if (payload.shop_id) {
+      await User.updateOne(
+        { 'shopifyData.shopId': payload.shop_id.toString() },
+        { $unset: { shopifyData: "", /* other merchant fields */ }, $set: { isActive: false } }
+      );
+      await ProductKnowledge.deleteMany({ user: (await User.findOne({ 'shopifyData.shopId': payload.shop_id.toString() }))?._id });
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    console.error('❌ shop/redact error', err);
+    return res.status(500).end();
+  }
+};
+
+
+// add this at the end of controllers/shopifyController.js
 export default {
   getInstallUrl,
   shopifyCallback,
   handleProductWebhook,
+  handleCustomersDataRequest,
+  handleCustomersRedact,
+  handleShopRedact,
   manualSync,
-  getShopifyStatus
+  getShopifyStatus,
+  syncShopifyProducts,
+  registerShopifyWebhooks
 };
