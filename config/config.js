@@ -12,7 +12,7 @@ export const config = {
   emailPassword: process.env.EMAIL_PASSWORD || 'your-app-password',
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   // ⭐ OpenAI - Make sure this exists
-  defaultOpenAIKey: process.env.DEFAULT_OPENAI_KEY || 'sk-placeholder-key',
+  defaultOpenAIKey: (process.env.DEFAULT_OPENAI_KEY || '').trim(),
   shopifyApiSecret: process.env.shopifyApiSecret || '',
 
 };

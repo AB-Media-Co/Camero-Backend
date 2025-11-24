@@ -23,6 +23,11 @@ const createWidgetApiKey = async () => {
 
     console.log('👤 Found client user:', clientUser.email);
 
+    const providerKey = (process.env.DEFAULT_OPENAI_KEY || '').trim();
+    if (!providerKey || providerKey.length < 30 || !providerKey.startsWith('sk-')) {
+      throw new Error('DEFAULT_OPENAI_KEY is missing or invalid. Please add a valid OpenAI/OpenRouter key to your .env before running this script.');
+    }
+
     // Generate a new widget API key
     const widgetApiKey = ApiKey.generateKey();
     console.log('🔑 Generated API Key:', widgetApiKey);
@@ -34,7 +39,7 @@ const createWidgetApiKey = async () => {
       name: 'Widget API Key',
       isActive: true,
       provider: 'openai',
-      providerApiKey: process.env.DEFAULT_OPENAI_KEY || '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',
+      providerApiKey: providerKey,
       widgetSettings: {
         enabled: true,
         allowedDomains: ['http://localhost:3000', 'http://localhost:3001'],

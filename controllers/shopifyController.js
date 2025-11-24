@@ -1,7 +1,14 @@
 // controllers/shopifyController.js
+import axios from 'axios';
 import crypto from 'crypto';
-import { config } from '../config/config.js'; // ensure config import exists
+import { config } from '../config/config.js';
 import User from '../models/User.js';
+import ApiKey from '../models/ApiKey.js';
+import Plan from '../models/Plan.js';
+import ProductKnowledge from '../models/ProductKnowledge.js';
+import UserActivity from '../models/UserActivity.js';
+import { ROLES, PLAN_STATUS } from '../utils/constants.js';
+import ChatConversation from '../models/ChatConversation.js';
 
 // Verify OAuth query HMAC (safe compare)
 // keeps existing query-based verification but uses timingSafeEqual
@@ -30,6 +37,13 @@ const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
   const headerBuf = Buffer.from(hmacHeader || '', 'utf8');
   if (digestBuf.length !== headerBuf.length) return false;
   return crypto.timingSafeEqual(digestBuf, headerBuf);
+};
+
+const getRawBodyBuffer = (req) => {
+  if (!req) return Buffer.from('');
+  if (Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === 'string') return Buffer.from(req.body, 'utf8');
+  return Buffer.from(JSON.stringify(req.body || {}), 'utf8');
 };
 
 
@@ -446,13 +460,7 @@ export const handleProductWebhook = async (req, res) => {
     const topic = req.headers['x-shopify-topic'];
     const shop = req.headers['x-shopify-shop-domain'];
 
-
-    // Verify webhook
-    const rawBody = JSON.stringify(req.body);
-    if (!verifyShopifyWebhook(rawBody, hmac)) {
-      return res.status(401).json({ success: false, message: 'Invalid webhook' });
-    }
-    const rawBodyBuffer = req.body;
+    const rawBodyBuffer = getRawBodyBuffer(req);
     if (!rawBodyBuffer || !verifyShopifyWebhook(rawBodyBuffer, hmac)) {
       return res.status(401).json({ success: false, message: 'Invalid webhook' });
     }
@@ -592,16 +600,14 @@ export const getShopifyStatus = async (req, res) => {
 // controllers/shopifyController.js (add before export default)
 export const handleCustomersDataRequest = async (req, res) => {
   try {
-    const raw = req.body; // Buffer from express.raw
     const hmac = req.headers['x-shopify-hmac-sha256'];
+    const raw = getRawBodyBuffer(req);
     if (!verifyShopifyWebhook(raw, hmac)) return res.status(401).end();
 
-    // parse payload if needed
     const payload = JSON.parse(raw.toString('utf8'));
+    console.log('📩 customers/data_request received for', payload.id || payload.customer?.email);
 
-    // Minimal behavior: acknowledge the request quickly.
-    // You may want to queue an export to run async and respond immediately.
-    console.log('📩 customers/data_request received for', payload);
+    // In a real system you would enqueue data export for the merchant/customer here.
     return res.status(200).json({ success: true });
   } catch (err) {
     console.error('❌ customers/data_request error', err);
@@ -611,28 +617,25 @@ export const handleCustomersDataRequest = async (req, res) => {
 
 export const handleCustomersRedact = async (req, res) => {
   try {
-    const raw = req.body;
     const hmac = req.headers['x-shopify-hmac-sha256'];
+    const raw = getRawBodyBuffer(req);
     if (!verifyShopifyWebhook(raw, hmac)) return res.status(401).end();
 
     const payload = JSON.parse(raw.toString('utf8'));
-    console.log('🗑️ customers/redact', payload);
+    console.log('🗑️ customers/redact', payload.customer?.email);
 
-    // Perform data redaction/deletion for the customer
-    // Example: remove product knowledge and personal data for matching email/shop
-    // Use safe queries; payload may include customer object or email
-    if (payload.customer?.email) {
-      await ProductKnowledge.updateMany(
-        { 'userEmail': payload.customer.email }, // adjust to your schema
-        { $unset: { /* fields to remove */ } }
-      );
+    const shopUsers = await User.find({ 'shopifyData.shopDomain': payload.shop_domain });
+    const userIds = shopUsers.map((u) => u._id);
+
+    if (userIds.length) {
+      await ChatConversation.deleteMany({
+        user: { $in: userIds },
+        $or: [
+          { customerId: payload.customer?.id?.toString() || '' },
+          { 'metadata.customerEmail': payload.customer?.email || null }
+        ]
+      });
     }
-
-    // Or find user by shop and remove PII
-    await User.updateMany(
-      { 'shopifyData.shopDomain': payload.shop_domain || '' },
-      { $unset: { /* fields to remove */ }, $set: { isActive: false } }
-    );
 
     return res.status(200).json({ success: true });
   } catch (err) {
@@ -643,20 +646,20 @@ export const handleCustomersRedact = async (req, res) => {
 
 export const handleShopRedact = async (req, res) => {
   try {
-    const raw = req.body;
     const hmac = req.headers['x-shopify-hmac-sha256'];
+    const raw = getRawBodyBuffer(req);
     if (!verifyShopifyWebhook(raw, hmac)) return res.status(401).end();
 
     const payload = JSON.parse(raw.toString('utf8'));
-    console.log('🏷️ shop/redact', payload);
+    console.log('🏷️ shop/redact', payload.shop_domain);
 
-    // Delete or anonymize any data tied to this shop
-    if (payload.shop_id) {
-      await User.updateOne(
-        { 'shopifyData.shopId': payload.shop_id.toString() },
-        { $unset: { shopifyData: "", /* other merchant fields */ }, $set: { isActive: false } }
-      );
-      await ProductKnowledge.deleteMany({ user: (await User.findOne({ 'shopifyData.shopId': payload.shop_id.toString() }))?._id });
+    const shopUser = await User.findOne({ 'shopifyData.shopId': payload.shop_id?.toString() });
+    if (shopUser) {
+      await ProductKnowledge.deleteMany({ user: shopUser._id });
+      await ChatConversation.deleteMany({ user: shopUser._id });
+      shopUser.shopifyData = undefined;
+      shopUser.isActive = false;
+      await shopUser.save();
     }
 
     return res.status(200).json({ success: true });

@@ -3,6 +3,7 @@ import ChatConversation from '../models/ChatConversation.js';
 import ApiKey from '../models/ApiKey.js';
 import ProductKnowledge from '../models/ProductKnowledge.js';
 import { getAIProvider } from '../services/aiProviderService.js';
+import { config as appConfig } from '../config/config.js';
 import { v4 as uuidv4 } from 'uuid';
 
 
@@ -203,6 +204,12 @@ export const initChatSession = async (req, res) => {
 };
 
 
+const isLikelyProviderKey = (key = '') => {
+  if (typeof key !== 'string') return false;
+  const trimmed = key.trim();
+  return trimmed.startsWith('sk-') && trimmed.length >= 32;
+};
+
 export const sendMessage = async (req, res) => {
   try {
     const apiKeyString = req.headers['x-api-key'];
@@ -215,10 +222,22 @@ export const sendMessage = async (req, res) => {
     if (!apiKey || !apiKey.isActive) return res.status(401).json({ success: false, message: 'Invalid Key' });
 
     // 2. Provider Setup
+    let providerKey = apiKey.providerApiKey?.trim();
+    if (!isLikelyProviderKey(providerKey)) {
+      providerKey = appConfig.defaultOpenAIKey?.trim();
+    }
+
+    if (!isLikelyProviderKey(providerKey)) {
+      console.error(`❌ Provider API key missing for widget key ${apiKeyString}. Configure DEFAULT_OPENAI_KEY or update the API key.`);
+      return res.status(500).json({
+        success: false,
+        message: 'No AI provider key configured. Please add a valid OpenAI/OpenRouter key in the dashboard settings.'
+      });
+    }
+
     let providerName = (apiKey.provider || '').toLowerCase();
-    const providerKey = apiKey.providerApiKey || apiKeyString;
     if (!providerName || (providerKey.startsWith('sk-or-') && providerName === 'openai')) providerName = 'openrouter';
-    if (!providerName) providerName = 'openai';
+    if (!providerName) providerName = providerKey.startsWith('sk-or-') ? 'openrouter' : 'openai';
 
     // 3. IP Detection (Updated Logic)
     const getIpAddress = (req) => {
