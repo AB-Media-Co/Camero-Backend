@@ -132,6 +132,11 @@ const userSchema = new mongoose.Schema(
     metadata: {
       type: Map,
       of: mongoose.Schema.Types.Mixed
+    },
+    seenChats: {
+      type: [mongoose.Schema.Types.ObjectId],
+      default: [],
+      ref: 'ChatConversation'
     }
   },
   {

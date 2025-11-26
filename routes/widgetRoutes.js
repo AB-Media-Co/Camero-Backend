@@ -6,7 +6,9 @@ import {
   getChatHistory,
   checkCustomer,   // <-- import new controller
   getAllConversations,
-  getConversationById
+  getConversationById,
+  markChatsAsSeen,
+  getSeenChats
 } from '../controllers/chatWidgetController.js';
 import { rateLimitMiddleware } from '../middleware/rateLimit.js';
 import { protect } from '../middleware/auth.js';
@@ -19,8 +21,14 @@ router.post('/init', rateLimitMiddleware, initChatSession);
 router.post('/chat', rateLimitMiddleware, sendMessage);
 
 router.get('/all', protect, getAllConversations);
-router.get('/:id', protect, getConversationById);
+
+// Seen chats routes (protected) - MUST come before /:id route
+router.post('/seen-chats', protect, markChatsAsSeen);
+router.get('/seen-chats', protect, getSeenChats);
 
 router.get('/history/:sessionId', rateLimitMiddleware, getChatHistory);
+
+// This route should be last as it matches any string
+router.get('/:id', protect, getConversationById);
 
 export default router;

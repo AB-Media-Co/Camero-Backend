@@ -1,7 +1,9 @@
 (function () {
   'use strict';
 
-  const WIDGET_API = 'http://localhost:5000/api/widget';
+  // const WIDGET_API = 'http://localhost:5000/api/widget';
+  const WIDGET_API = 'https://camero.myabmedia.com/api/widget';
+
 
   const fetchWithTimeout = (url, opts = {}, timeout = 10000) => {
     const controller = new AbortController();

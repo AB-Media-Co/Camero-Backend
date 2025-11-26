@@ -1,6 +1,8 @@
 // controllers/chatWidgetController.js
+import mongoose from 'mongoose';
 import ChatConversation from '../models/ChatConversation.js';
 import ApiKey from '../models/ApiKey.js';
+import User from '../models/User.js';
 import ProductKnowledge from '../models/ProductKnowledge.js';
 import WebsiteEmbedding from '../models/WebsiteEmbedding.js';
 import { embedSingleText } from '../services/embeddingService.js';
@@ -553,6 +555,98 @@ export const getConversationById = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ========== Seen Chats Management ==========
+
+/**
+ * Mark chat(s) as seen
+ */
+export const markChatsAsSeen = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { chatIds } = req.body; // Array of chat IDs
+
+    if (!chatIds || !Array.isArray(chatIds) || chatIds.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'chatIds array is required' 
+      });
+    }
+
+    // Validate chat IDs are ObjectIds
+    const validChatIds = chatIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+    
+    if (validChatIds.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No valid chat IDs provided' 
+      });
+    }
+
+    // Update user's seenChats array (add unique IDs)
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    // Add new chat IDs to seenChats (avoid duplicates)
+    const existingSeenChats = new Set(user.seenChats.map(id => id.toString()));
+    validChatIds.forEach(chatId => {
+      if (!existingSeenChats.has(chatId.toString())) {
+        user.seenChats.push(chatId);
+      }
+    });
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        seenChats: user.seenChats,
+        message: 'Chats marked as seen successfully'
+      }
+    });
+  } catch (error) {
+    console.error('Error marking chats as seen:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Server error' 
+    });
+  }
+};
+
+/**
+ * Get all seen chat IDs for the user
+ */
+export const getSeenChats = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId).select('seenChats');
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        seenChats: user.seenChats || []
+      }
+    });
+  } catch (error) {
+    console.error('Error getting seen chats:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Server error' 
+    });
   }
 };
 
