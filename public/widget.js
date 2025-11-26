@@ -38,9 +38,9 @@
 
       this.injectStyles();
       this.renderChatBubble();
-
+      this.checkAndMaybeAutoRestore()
       // Auto-check for existing session
-      setTimeout(() => this.checkAndMaybeAutoRestore(), 500);
+      // setTimeout(() => this.checkAndMaybeAutoRestore(), 500);
     }
 
     // Inject all widget styles
@@ -126,40 +126,40 @@
     // Format message text with markdown-like syntax
     formatMessage(text) {
       if (!text) return '';
-      
+
       let formatted = String(text);
-      
+
       // First, escape HTML to prevent XSS
       formatted = formatted
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
-      
+
       // Process bold: **text** (do this before italic to avoid conflicts)
       formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      
+
       // Process italic: *text* (single asterisk)
       formatted = formatted.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
-      
+
       // Process inline code: `code`
       formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-      
+
       // Process links: [text](url)
       formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-      
+
       // Split into lines for list processing
       const lines = formatted.split('\n');
       const processedLines = [];
       let inList = false;
-      
+
       for (let i = 0; i < lines.length; i++) {
         let line = lines[i].trim();
-        
+
         // Check for bullet list items (- or *)
         const bulletMatch = line.match(/^[-•*]\s+(.+)$/);
         // Check for numbered list items
         const numberMatch = line.match(/^\d+[.)]\s+(.+)$/);
-        
+
         if (bulletMatch) {
           if (!inList) {
             processedLines.push('<ul>');
@@ -182,22 +182,22 @@
           }
         }
       }
-      
+
       // Close any open list
       if (inList) {
         processedLines.push('</ul>');
       }
-      
+
       formatted = processedLines.join('');
-      
+
       // Clean up empty paragraphs
       formatted = formatted.replace(/<p><\/p>/g, '');
-      
+
       // If nothing was wrapped, wrap in a simple span
       if (!formatted.includes('<')) {
         formatted = '<p>' + formatted + '</p>';
       }
-      
+
       return formatted;
     }
 
@@ -206,7 +206,7 @@
       // Look for JSON product array in the response
       const productMatch = text.match(/\[PRODUCTS\]([\s\S]*?)\[\/PRODUCTS\]/);
       if (!productMatch) return { text, products: [] };
-      
+
       try {
         const products = JSON.parse(productMatch[1]);
         const cleanText = text.replace(/\[PRODUCTS\][\s\S]*?\[\/PRODUCTS\]/, '').trim();
@@ -220,20 +220,20 @@
     // Render product carousel HTML
     renderProductCarousel(products) {
       if (!products || products.length === 0) return '';
-      
+
       const cardsHtml = products.map(product => {
-        const imageHtml = product.imageUrl 
+        const imageHtml = product.imageUrl
           ? `<img src="${product.imageUrl}" alt="${product.name || 'Product'}" onerror="this.parentElement.innerHTML='<div class=\\'product-img-placeholder\\'>📦</div>'">`
           : `<div class="product-img-placeholder">📦</div>`;
-        
-        const priceHtml = product.price 
-          ? `<div class="product-card-price">$${parseFloat(product.price).toFixed(2)}</div>` 
+
+        const priceHtml = product.price
+          ? `<div class="product-card-price">$${parseFloat(product.price).toFixed(2)}</div>`
           : '';
-        
-        const btnHtml = product.url 
+
+        const btnHtml = product.url
           ? `<a href="${product.url}" target="_blank" class="product-card-btn">View Details →</a>`
           : '';
-        
+
         return `
           <div class="product-card">
             ${imageHtml}
@@ -245,7 +245,7 @@
           </div>
         `;
       }).join('');
-      
+
       return `
         <div class="product-carousel-wrapper">
           <div style="font-size:11px; color:#888; margin-bottom:6px;">📦 Products</div>
@@ -295,6 +295,50 @@
       if (bubble) bubble.addEventListener('click', () => this.handleBubbleClick());
     }
 
+    renderNudge(nudge) {
+      console.log('🔔 renderNudge called with:', nudge);
+      if (!nudge || !nudge.isActive) {
+        console.log('❌ Nudge invalid or inactive');
+        return;
+      }
+
+      const existingNudge = document.getElementById('ai-nudge-popup');
+      if (existingNudge) existingNudge.remove();
+
+      this.showNudgeUI(nudge);
+    }
+
+    showNudgeUI(nudge) {
+      // ❌ koi isOpen check nahi
+      const themeColor = this.config?.interfaceColor || '#17876E';
+      const position = nudge.appearance?.position || 'bottom-right';
+
+      const bottomOffset = '90px';
+      const rightOffset = '20px';
+
+      const nudgeHTML = `
+    <div id="ai-nudge-popup" style="position: fixed; bottom: ${bottomOffset}; right: ${rightOffset}; width: 300px; background: white; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.15); z-index: 999998; animation: slideUp 0.5s ease; border-left: 4px solid ${themeColor}; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+      <button id="close-nudge" style="position: absolute; top: 8px; right: 8px; background: none; border: none; color: #999; cursor: pointer; font-size: 18px; line-height: 1;">×</button>
+      <div style="font-size: 14px; color: #333; margin-bottom: 12px; line-height: 1.5;">${this.formatMessage(nudge.message)}</div>
+      <button id="nudge-cta" style="background: ${themeColor}; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%;">Ask Me Anything</button>
+    </div>
+  `;
+
+      document.body.insertAdjacentHTML('beforeend', nudgeHTML);
+
+      document.getElementById('close-nudge').onclick = (e) => {
+        e.stopPropagation();
+        document.getElementById('ai-nudge-popup').remove();
+        // ⚠️ yahan kuch bhi localStorage/sessionStorage mat daalna
+      };
+
+      document.getElementById('nudge-cta').onclick = () => {
+        document.getElementById('ai-nudge-popup').remove();
+        this.handleBubbleClick();
+      };
+    }
+
+
     handleBubbleClick() {
       if (!this.isOpen) {
         this.isOpen = true;
@@ -306,38 +350,61 @@
       }
     }
 
-    // Check for existing session and auto-restore
     async checkAndMaybeAutoRestore() {
-      if (!this.apiKey || !this.sessionId) return;
+      if (!this.apiKey) return;  // sirf apiKey check karo
 
       try {
+        const body = {
+          pageUrl: window.location.href,
+          referrer: document.referrer
+        };
+
+        // agar sessionId hai to bhej do, warna mat bhejo – but call hamesha karo
+        if (this.sessionId) {
+          body.sessionId = this.sessionId;
+        }
+
         const resp = await fetchWithTimeout(
           `${this.apiUrl}/init`,
           {
             method: 'POST',
             headers: this._buildHeaders(),
-            body: JSON.stringify({
-              sessionId: this.sessionId,
-              pageUrl: window.location.href
-            })
+            body: JSON.stringify(body)
           },
           5000
         );
 
         if (!resp.ok) return;
         const data = await resp.json();
+        console.log('🔍 Auto-restore response:', data);
 
-        if (data.exists && data.data?.conversation?.length > 0) {
-          console.log('🔄 Auto-restoring chat:', data.data.chatName);
-          this.sessionId = data.data.sessionId;
-          this.chatName = data.data.chatName;
-          this.config = data.data.config;
-          this.isInitialized = true;
+        if (data.success && data.data) {
+          // config set karo (colors, etc)
+          this.config = data.data.config || this.config;
+
+          // agar server ne new sessionId diya ho to save kar lo
+          if (data.data.sessionId) {
+            this.saveSession(data.data.sessionId, data.data.chatName);
+          }
+
+          // agar history hai to restore bhi kar sakte ho (optional)
+          if (data.data.conversation && data.data.conversation.length > 0) {
+            this.isInitialized = true;
+            // sirf tab window show karni ho to yaha decide karna – agar nahi chahiye to skip
+            // this.renderChatWindow();
+            // this.renderHistory(data.data.conversation);
+          }
+
+          // ⭐ IMPORTANT: yahan se nudge hamesha try karo
+          if (data.data.nudge) {
+            this.renderNudge(data.data.nudge);
+          }
         }
       } catch (err) {
         console.warn('Session check failed:', err);
       }
     }
+
 
     async initChat() {
       this.showLoading();
@@ -362,6 +429,7 @@
         }
 
         const data = await response.json();
+        console.log('🚀 Init response:', data);
         if (data.success) {
           this.saveSession(data.data.sessionId, data.data.chatName);
           this.config = data.data.config;
@@ -370,6 +438,10 @@
 
           if (data.data.conversation && data.data.conversation.length > 0) {
             this.renderHistory(data.data.conversation);
+          }
+
+          if (data.data.nudge) {
+            this.renderNudge(data.data.nudge);
           }
         } else {
           this.showError(data.message || 'Failed to initialize chat');
@@ -555,9 +627,9 @@
       const div = document.createElement('div');
       div.className = 'message';
       div.style.cssText = `display:flex; margin-bottom:12px; justify-content:${role === 'user' ? 'flex-end' : 'flex-start'}; animation: fadeIn 0.3s ease;`;
-      
+
       const themeColor = this.config?.interfaceColor || '#17876E';
-      
+
       if (role === 'user') {
         // User message
         div.innerHTML = `
@@ -569,7 +641,7 @@
         // Bot message - check for products
         const { text: cleanText, products } = this.parseProducts(text);
         const productCarouselHtml = this.renderProductCarousel(products);
-        
+
         div.innerHTML = `
           <div style="background:white; color:#333; padding:14px 16px; border-radius:4px 16px 16px 16px; max-width:85%; box-shadow:0 1px 3px rgba(0,0,0,0.08); border: 1px solid #eee;">
             <div class="chat-msg-content">${this.formatMessage(cleanText)}</div>
@@ -577,7 +649,7 @@
           </div>
         `;
       }
-      
+
       messagesDiv.appendChild(div);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
@@ -627,15 +699,15 @@
           // Check if products are included in response
           const botMessage = data.data.message;
           const products = data.data.products || [];
-          
+
           // If products exist, append them in special format
           let finalMessage = botMessage;
           if (products.length > 0) {
             finalMessage += `\n[PRODUCTS]${JSON.stringify(products)}[/PRODUCTS]`;
           }
-          
+
           this.appendMessageToUI('bot', finalMessage);
-          
+
           if (data.data.sessionId) {
             this.saveSession(data.data.sessionId, data.data.chatName || this.chatName);
           }

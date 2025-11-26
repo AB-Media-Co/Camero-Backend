@@ -36,24 +36,23 @@ const userSchema = new mongoose.Schema(
       type: String,
       trim: true,
       lowercase: true,
-      required: function() {
+      required: function () {
         return this.role === ROLES.CLIENT;
       },
       validate: {
-        validator: function(v) {
+        validator: function (v) {
           if (this.role !== ROLES.CLIENT) return true;
           return !v || /^(https?:\/\/)?([\w\d-]+\.)+[\w\d]{2,}(\/.*)?$/.test(v);
         },
         message: 'Please provide a valid store URL'
       }
     },
-    // ← NEW: Assistant Configuration
     assistantConfig: {
       name: {
         type: String,
         trim: true,
         default: 'AI Assistant',
-        required: function() {
+        required: function () {
           return this.role === ROLES.CLIENT;
         }
       },
@@ -61,7 +60,7 @@ const userSchema = new mongoose.Schema(
         type: String,
         enum: ['professional', 'playful', 'friendly'],
         default: 'professional',
-        required: function() {
+        required: function () {
           return this.role === ROLES.CLIENT;
         }
       },
@@ -69,7 +68,7 @@ const userSchema = new mongoose.Schema(
         type: String,
         default: '#17876E',
         validate: {
-          validator: function(v) {
+          validator: function (v) {
             return /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(v);
           },
           message: 'Invalid color format. Use hex color (e.g., #17876E)'
@@ -84,13 +83,13 @@ const userSchema = new mongoose.Schema(
     plan: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Plan',
-      required: function() {
+      required: function () {
         return this.role === ROLES.CLIENT;
       }
     },
     planExpiry: {
       type: Date,
-      required: function() {
+      required: function () {
         return this.role === ROLES.CLIENT;
       }
     },
@@ -137,7 +136,12 @@ const userSchema = new mongoose.Schema(
       type: [mongoose.Schema.Types.ObjectId],
       default: [],
       ref: 'ChatConversation'
-    }
+    },
+    integrations: [{
+      id: { type: String, required: true },
+      connectedAt: { type: Date, default: Date.now },
+      config: { type: Map, of: String }
+    }]
   },
   {
     timestamps: true
@@ -168,19 +172,19 @@ userSchema.methods.isPlanExpired = function () {
 userSchema.methods.hasFeatureAccess = async function (featureName) {
   if (this.role === ROLES.SUPER_ADMIN) return true;
   if (this.role === ROLES.STAFF) return true;
-  
+
   if (this.role === ROLES.CLIENT) {
     if (this.isPlanExpired() || this.planStatus !== PLAN_STATUS.ACTIVE) {
       return false;
     }
-    
+
     const plan = await mongoose.model('Plan').findById(this.plan);
     if (!plan || !plan.isActive) return false;
-    
+
     const feature = plan.features[featureName];
     return feature && feature.enabled === true;
   }
-  
+
   return false;
 };
 

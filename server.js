@@ -14,6 +14,8 @@ import invitationRoutes from './routes/invitationRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import widgetRoutes from './routes/widgetRoutes.js';
 import trainingRoutes from './routes/training.js';
+import integrationRoutes from './routes/integrationRoutes.js';
+import nudgeRoutes from './routes/nudgeRoutes.js';
 
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -30,7 +32,7 @@ app.set('trust proxy', true);
 // Socket.io
 const io = new Server(httpServer, {
   cors: {
-    origin: [config.clientUrl, 'http://localhost:3000', 'http://localhost:5173','https://camero.myabmedia.com/'],
+    origin: [config.clientUrl, 'http://localhost:3000', 'http://localhost:5173', 'https://camero.myabmedia.com/'],
     methods: ['GET', 'POST'],
     credentials: true
   }
@@ -97,6 +99,8 @@ app.use('/api/shopify', shopifyRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/widget', widgetRoutes);
 app.use('/api/training', trainingRoutes);
+app.use('/api/integrations', integrationRoutes);
+app.use('/api/nudges', nudgeRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

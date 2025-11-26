@@ -9,6 +9,7 @@ import { embedSingleText } from '../services/embeddingService.js';
 import { getAIProvider } from '../services/aiProviderService.js';
 import { config as appConfig } from '../config/config.js';
 import { v4 as uuidv4 } from 'uuid';
+import Nudge from '../models/Nudge.js';
 
 // ⭐ NEW: cosine similarity helper for RAG
 const cosineSimilarity = (a = [], b = []) => {
@@ -48,9 +49,9 @@ export const checkCustomer = async (req, res) => {
     }
 
     // Find conversation by sessionId
-    const conversation = await ChatConversation.findOne({ 
-      user: apiKey.user._id, 
-      sessionId: sessionId 
+    const conversation = await ChatConversation.findOne({
+      user: apiKey.user._id,
+      sessionId: sessionId
     });
 
     if (!conversation) {
@@ -80,13 +81,62 @@ export const checkCustomer = async (req, res) => {
       }));
     }
 
+    // ⭐ NEW: Fetch Active Nudge Logic
+    let activeNudge = null;
+    try {
+      const pageUrl = req.query.pageUrl || req.headers['referer'] || '';
+
+      // Find all active nudges for this user
+      const nudges = await Nudge.find({ user: apiKey.user._id, isActive: true });
+      console.log('🔎 Found active nudges:', nudges.length);
+
+      // Determine which nudge to show
+      // Priority: Custom (exact match) > Product > Collection > Homepage
+
+      let matchedNudge = null;
+
+      if (pageUrl) {
+        const urlObj = new URL(pageUrl);
+        const path = urlObj.pathname;
+
+        // 1. Custom Nudges (TODO: Add regex or specific path matching logic if 'custom' type stores it)
+        // For now, skipping complex custom logic
+
+        // 2. Product Pages
+        if (!matchedNudge && path.includes('/products/')) {
+          matchedNudge = nudges.find(n => n.type === 'product');
+        }
+
+        // 3. Collection Pages
+        if (!matchedNudge && path.includes('/collections/')) {
+          matchedNudge = nudges.find(n => n.type === 'collection');
+        }
+
+        // 4. Fallback to Homepage nudge (Default behavior)
+        if (!matchedNudge) {
+          matchedNudge = nudges.find(n => n.type === 'homepage');
+        }
+      }
+
+      if (matchedNudge) {
+        console.log('✅ Matched nudge:', matchedNudge.type);
+        activeNudge = matchedNudge;
+      } else {
+        console.log('❌ No nudge matched');
+      }
+
+    } catch (e) {
+      console.error('Error fetching nudge:', e);
+    }
+
     return res.status(200).json({
       success: true,
       exists: true,
       sessionId: conversation.sessionId,
       chatName: conversation.chatName,
       config,
-      messages
+      messages,
+      nudge: activeNudge // Return the nudge
     });
   } catch (err) {
     console.error('checkCustomer error:', err);
@@ -160,7 +210,8 @@ export const initChatSession = async (req, res) => {
             sessionId: existingConversation.sessionId,
             chatName: existingConversation.chatName,
             config: config,
-            conversation: existingConversation.conversation
+            conversation: existingConversation.conversation,
+            nudge: await getNudgeForPage(apiKey.user._id, req.body?.pageUrl || req.headers['referer'])
           }
         });
       }
@@ -179,13 +230,42 @@ export const initChatSession = async (req, res) => {
         sessionId: newSessionId,
         chatName: newChatName,
         config: config,
-        conversation: []
+        conversation: [],
+        nudge: await getNudgeForPage(apiKey.user._id, req.body?.pageUrl || req.headers['referer'])
       }
     });
 
   } catch (err) {
     console.error('Init error:', err);
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Helper to get nudge (reused logic)
+const getNudgeForPage = async (userId, pageUrl) => {
+  try {
+    if (!pageUrl) return null;
+    const nudges = await Nudge.find({ user: userId, isActive: true });
+    console.log('🔎 getNudgeForPage found active nudges:', nudges.length);
+
+    const urlObj = new URL(pageUrl);
+    const path = urlObj.pathname;
+
+    if (path.includes('/products/')) {
+      const productNudge = nudges.find(n => n.type === 'product');
+      if (productNudge) return productNudge;
+    }
+
+    if (path.includes('/collections/')) {
+      const collectionNudge = nudges.find(n => n.type === 'collection');
+      if (collectionNudge) return collectionNudge;
+    }
+
+    // Fallback to homepage nudge for all other pages (or if specific nudge not found)
+    return nudges.find(n => n.type === 'homepage');
+  } catch (e) {
+    console.error('Error getting nudge:', e);
+    return null;
   }
 };
 
@@ -569,28 +649,28 @@ export const markChatsAsSeen = async (req, res) => {
     const { chatIds } = req.body; // Array of chat IDs
 
     if (!chatIds || !Array.isArray(chatIds) || chatIds.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'chatIds array is required' 
+      return res.status(400).json({
+        success: false,
+        message: 'chatIds array is required'
       });
     }
 
     // Validate chat IDs are ObjectIds
     const validChatIds = chatIds.filter(id => mongoose.Types.ObjectId.isValid(id));
-    
+
     if (validChatIds.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'No valid chat IDs provided' 
+      return res.status(400).json({
+        success: false,
+        message: 'No valid chat IDs provided'
       });
     }
 
     // Update user's seenChats array (add unique IDs)
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'User not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
       });
     }
 
@@ -613,9 +693,9 @@ export const markChatsAsSeen = async (req, res) => {
     });
   } catch (error) {
     console.error('Error marking chats as seen:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Server error' 
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
     });
   }
 };
@@ -629,9 +709,9 @@ export const getSeenChats = async (req, res) => {
 
     const user = await User.findById(userId).select('seenChats');
     if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'User not found' 
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
       });
     }
 
@@ -643,9 +723,9 @@ export const getSeenChats = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting seen chats:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Server error' 
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Server error'
     });
   }
 };
