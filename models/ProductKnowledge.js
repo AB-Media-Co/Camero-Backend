@@ -33,6 +33,28 @@ const productKnowledgeSchema = new mongoose.Schema(
         default: 0
       }
     }],
+    webSnapshots: [{
+      url: {
+        type: String,
+        required: true,
+        trim: true
+      },
+      title: String,
+      summary: String,
+      contentPreview: String,
+      headings: [String],
+      capturedAt: {
+        type: Date,
+        default: Date.now
+      },
+      tokens: Number,
+      status: {
+        type: String,
+        enum: ['success', 'error'],
+        default: 'success'
+      },
+      errorMessage: String
+    }],
     lastSynced: {
       type: Date,
       default: Date.now

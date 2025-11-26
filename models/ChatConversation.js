@@ -1,21 +1,44 @@
 import mongoose from 'mongoose';
 
+// ========== Random Chat Name Generator ==========
+const COLORS = [
+  'Amber', 'Azure', 'Beige', 'Bronze', 'Coral', 'Crimson', 'Cyan', 'Emerald',
+  'Fuchsia', 'Gold', 'Indigo', 'Ivory', 'Jade', 'Lavender', 'Lemon', 'Lilac',
+  'Magenta', 'Maroon', 'Mint', 'Navy', 'Olive', 'Orange', 'Orchid', 'Peach',
+  'Pearl', 'Pink', 'Plum', 'Purple', 'Rose', 'Ruby', 'Sage', 'Salmon',
+  'Sapphire', 'Scarlet', 'Silver', 'Sky', 'Slate', 'Teal', 'Turquoise', 'Violet'
+];
+
+const ANIMALS = [
+  'Bear', 'Bunny', 'Cat', 'Deer', 'Dolphin', 'Dragon', 'Eagle', 'Falcon',
+  'Fox', 'Frog', 'Hawk', 'Hedgehog', 'Jaguar', 'Kitten', 'Koala', 'Leopard',
+  'Lion', 'Lynx', 'Monkey', 'Otter', 'Owl', 'Panda', 'Panther', 'Parrot',
+  'Penguin', 'Phoenix', 'Pony', 'Puppy', 'Rabbit', 'Raven', 'Robin', 'Shark',
+  'Sparrow', 'Tiger', 'Turtle', 'Unicorn', 'Wolf', 'Zebra', 'Kitty', 'Birdie'
+];
+
+const generateChatName = () => {
+  const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+  const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
+  return `${color} ${animal}`;
+};
+
 const chatConversationSchema = new mongoose.Schema(
   {
     // --- Required Internal Fields (Keep these for your SaaS logic) ---
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     apiKey: { type: mongoose.Schema.Types.ObjectId, ref: 'ApiKey', required: true },
-    sessionId: { type: String, required: true, index: true },
+    sessionId: { type: String, required: true, unique: true, index: true },
     
-    // --- YOUR REQUESTED STRUCTURE STARTS HERE ---
+    // --- Chat Identification ---
     
-    // 1. Top level IP
-    ip: { 
+    // Random friendly name like "Indigo Zebra", "Silver Kitty"
+    chatName: { 
       type: String, 
-      default: "" 
+      default: generateChatName
     },
 
-    // 2. Top level Customer ID (As requested, empty for now)
+    // Optional customer ID (for future use)
     customerId: { 
       type: String, 
       default: "" 
@@ -51,6 +74,9 @@ const chatConversationSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Static method to generate chat name
+chatConversationSchema.statics.generateChatName = generateChatName;
 
 const ChatConversation = mongoose.model('ChatConversation', chatConversationSchema);
 export default ChatConversation;

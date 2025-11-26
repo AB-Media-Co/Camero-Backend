@@ -13,6 +13,7 @@ import websiteRoutes from './routes/website.js';
 import invitationRoutes from './routes/invitationRoutes.js';
 import analyticsRoutes from './routes/analyticsRoutes.js';
 import widgetRoutes from './routes/widgetRoutes.js';
+import trainingRoutes from './routes/training.js';
 
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -95,6 +96,7 @@ app.use('/api/invitations', invitationRoutes);
 app.use('/api/shopify', shopifyRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/widget', widgetRoutes);
+app.use('/api/training', trainingRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

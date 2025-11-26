@@ -14,6 +14,114 @@ const generateToken = (id) => {
   });
 };
 
+const STORE_URL_MESSAGES = {
+  missing: 'Store URL is required',
+  invalid: 'Please provide a valid website URL (e.g., https://example.com)',
+  taken: 'This website is already registered. Please use a different site.',
+  unreachable: 'We could not reach this website. Please provide a live, publicly accessible URL.'
+};
+
+const escapeRegExp = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeStoreUrlInput = (rawUrl = '') => {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    throw new Error(STORE_URL_MESSAGES.missing);
+  }
+
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const parsed = new URL(withProtocol);
+
+  if (!parsed.hostname || !parsed.hostname.includes('.')) {
+    throw new Error(STORE_URL_MESSAGES.invalid);
+  }
+
+  parsed.hash = '';
+  parsed.search = '';
+  parsed.pathname = '';
+
+  return parsed.origin.toLowerCase();
+};
+
+const probeWebsite = async (url, method = 'HEAD', timeoutMs = 4000) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method,
+      redirect: 'follow',
+      signal: controller.signal
+    });
+
+    if (response.ok) {
+      return true;
+    }
+
+    // Treat auth/redirect/head-not-allowed responses as reachable
+    return [301, 302, 303, 307, 308, 401, 403, 405].includes(response.status);
+  } catch (error) {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const isStoreUrlReachable = async (url) => {
+  if (await probeWebsite(url, 'HEAD')) {
+    return true;
+  }
+  return await probeWebsite(url, 'GET');
+};
+
+const validateStoreUrlForSignup = async (rawUrl) => {
+  if (!rawUrl || !rawUrl.trim()) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: STORE_URL_MESSAGES.missing
+    };
+  }
+
+  let normalizedUrl;
+  try {
+    normalizedUrl = normalizeStoreUrlInput(rawUrl);
+  } catch (error) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: STORE_URL_MESSAGES.invalid
+    };
+  }
+
+  const conflictPattern = `^${escapeRegExp(normalizedUrl)}(?:\\/.*)?$`;
+  const storeUrlConflict = await User.findOne({
+    storeUrl: { $regex: conflictPattern, $options: 'i' }
+  });
+
+  if (storeUrlConflict) {
+    return {
+      success: false,
+      statusCode: 409,
+      message: STORE_URL_MESSAGES.taken
+    };
+  }
+
+  const reachable = await isStoreUrlReachable(normalizedUrl);
+  if (!reachable) {
+    return {
+      success: false,
+      statusCode: 400,
+      message: STORE_URL_MESSAGES.unreachable
+    };
+  }
+
+  return {
+    success: true,
+    normalizedUrl
+  };
+};
+
 const getDefaultPlan = async () => {
   let defaultPlan = await Plan.findOne({
     isActive: true,
@@ -144,9 +252,19 @@ export const register = async (req, res) => {
     if (!storeUrl) {
       return res.status(400).json({
         success: false,
-        message: 'Store URL is required'
+        message: STORE_URL_MESSAGES.missing
       });
     }
+
+    const storeUrlValidation = await validateStoreUrlForSignup(storeUrl);
+    if (!storeUrlValidation.success) {
+      return res.status(storeUrlValidation.statusCode).json({
+        success: false,
+        message: storeUrlValidation.message
+      });
+    }
+
+    const normalizedStoreUrl = storeUrlValidation.normalizedUrl;
 
     if (!assistantName) {
       return res.status(400).json({
@@ -199,7 +317,7 @@ export const register = async (req, res) => {
       name,
       email,
       password,
-      storeUrl,
+      storeUrl: normalizedStoreUrl,
       role: ROLES.CLIENT,
       assistantConfig: {
         name: assistantName,
@@ -222,7 +340,7 @@ export const register = async (req, res) => {
       providerApiKey: config.defaultOpenAIKey || '',
       widgetSettings: {
         enabled: true,
-        allowedDomains: storeUrl ? [storeUrl] : [],
+        allowedDomains: normalizedStoreUrl ? [normalizedStoreUrl] : [],
         position: 'bottom-right'
       },
       rateLimit: {
@@ -243,7 +361,7 @@ export const register = async (req, res) => {
       action: 'created',
       details: {
         role: ROLES.CLIENT,
-        storeUrl,
+        storeUrl: normalizedStoreUrl,
         assistantConfig: user.assistantConfig,
         assignedPlan: {
           id: selectedPlan._id,
@@ -285,6 +403,34 @@ export const register = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message
+    });
+  }
+};
+
+export const validateStoreUrl = async (req, res) => {
+  try {
+    const { storeUrl } = req.body;
+
+    const validation = await validateStoreUrlForSignup(storeUrl);
+    if (!validation.success) {
+      return res.status(validation.statusCode).json({
+        success: false,
+        message: validation.message
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Website is reachable and available',
+      data: {
+        storeUrl: validation.normalizedUrl
+      }
+    });
+  } catch (error) {
+    console.error('Store URL validation error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to validate website at this time. Please try again later.'
     });
   }
 };
