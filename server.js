@@ -30,7 +30,7 @@ app.set('trust proxy', true);
 // Socket.io
 const io = new Server(httpServer, {
   cors: {
-    origin: [config.clientUrl, 'http://localhost:3000', 'http://localhost:5173'],
+    origin: [config.clientUrl, 'http://localhost:3000', 'http://localhost:5173','https://camero.myabmedia.com/'],
     methods: ['GET', 'POST'],
     credentials: true
   }
