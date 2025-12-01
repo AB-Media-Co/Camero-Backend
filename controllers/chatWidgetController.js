@@ -87,7 +87,8 @@ export const checkCustomer = async (req, res) => {
       const pageUrl = req.query.pageUrl || req.headers['referer'] || '';
 
       // Find all active nudges for this user
-      const nudges = await Nudge.find({ user: apiKey.user._id, isActive: true });
+      // Use lean() to get plain JS objects and ensure all fields are accessible
+      const nudges = await Nudge.find({ user: apiKey.user._id, isActive: true }).lean();
       console.log('🔎 Found active nudges:', nudges.length);
 
       // Determine which nudge to show
@@ -120,6 +121,7 @@ export const checkCustomer = async (req, res) => {
 
       if (matchedNudge) {
         console.log('✅ Matched nudge:', matchedNudge.type);
+        // Ensure we return the full nudge object with all details
         activeNudge = matchedNudge;
       } else {
         console.log('❌ No nudge matched');
@@ -136,7 +138,7 @@ export const checkCustomer = async (req, res) => {
       chatName: conversation.chatName,
       config,
       messages,
-      nudge: activeNudge // Return the nudge
+      nudge: activeNudge // Return the full nudge object
     });
   } catch (err) {
     console.error('checkCustomer error:', err);
@@ -219,7 +221,10 @@ export const initChatSession = async (req, res) => {
 
     // No existing session - generate new one
     const newSessionId = uuidv4();
-    const newChatName = ChatConversation.generateChatName();
+
+    // Generate sequential name
+    const chatCount = await ChatConversation.countDocuments({ user: apiKey.user._id });
+    const newChatName = `${chatCount + 1} ${ChatConversation.generateChatName()}`;
 
     console.log('🆕 New chat session:', newChatName);
 
@@ -245,7 +250,8 @@ export const initChatSession = async (req, res) => {
 const getNudgeForPage = async (userId, pageUrl) => {
   try {
     if (!pageUrl) return null;
-    const nudges = await Nudge.find({ user: userId, isActive: true });
+    // Use lean() here too
+    const nudges = await Nudge.find({ user: userId, isActive: true }).lean();
     console.log('🔎 getNudgeForPage found active nudges:', nudges.length);
 
     const urlObj = new URL(pageUrl);
@@ -315,11 +321,17 @@ export const sendMessage = async (req, res) => {
 
       if (!conversationDoc) {
         // Create new conversation with chatName
+        let finalChatName = chatName;
+        if (!finalChatName) {
+          const chatCount = await ChatConversation.countDocuments({ user: apiKey.user._id });
+          finalChatName = `${chatCount + 1} ${ChatConversation.generateChatName()}`;
+        }
+
         conversationDoc = await ChatConversation.create({
           user: apiKey.user._id,
           apiKey: apiKey._id,
           sessionId: sessionId || uuidv4(),
-          chatName: chatName || ChatConversation.generateChatName(),
+          chatName: finalChatName,
           customerId: "",
           conversation: [],
           metadata: { userAgent: req.headers['user-agent'], pageUrl, referrer }
@@ -351,7 +363,7 @@ export const sendMessage = async (req, res) => {
       user: apiKey.user._id,
       sourceType: 'web'
     })
-      .limit(300)
+      .limit(1500) // Increased from 300 to 1500 for better coverage
       .lean();
 
     if (websiteEmbeddings.length) {
@@ -373,7 +385,36 @@ export const sendMessage = async (req, res) => {
       }
     }
 
-    const systemPrompt = buildSystemPrompt(apiKey.user, knowledge, ragContextText);
+    // ⭐ NEW: Fetch Past Conversations (Memory)
+    let pastContext = "";
+    if (!isPlayground) {
+      try {
+        // Fetch last 5 conversations (excluding current one)
+        const pastConversations = await ChatConversation.find({
+          user: apiKey.user._id,
+          sessionId: { $ne: sessionId } // Exclude current session
+        })
+          .sort({ updatedAt: -1 })
+          .limit(5)
+          .select('conversation');
+
+        if (pastConversations.length > 0) {
+          const historyTexts = pastConversations.map(chat => {
+            // Get last 3 turns from each chat to save tokens
+            const recentTurns = chat.conversation.slice(-6);
+            return recentTurns.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.message}`).join('\n');
+          }).filter(t => t.trim().length > 0);
+
+          if (historyTexts.length > 0) {
+            pastContext = `\n\n**PREVIOUS CONVERSATION MEMORY**\n(Use this to recall user details if needed, but prioritize current context)\n${historyTexts.join('\n---\n')}`;
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching past conversations:", err);
+      }
+    }
+
+    const systemPrompt = buildSystemPrompt(apiKey.user, knowledge, ragContextText + pastContext);
 
     // Build conversation history for AI context
     let conversationForAI = [];
@@ -428,13 +469,34 @@ export const sendMessage = async (req, res) => {
     // 10. Check if we should include products in response
     let productsToShow = [];
     if (isProductQuery(message) && knowledge?.products?.length > 0) {
-      // Get top 5 products to show in carousel
-      productsToShow = knowledge.products.slice(0, 5).map(p => ({
-        name: p.name,
-        price: p.price,
-        imageUrl: p.imageUrl || '',
-        url: p.url || '',
-        description: p.description || ''
+      const lowerMsg = message.toLowerCase();
+
+      // Simple keyword matching score
+      const scoredProducts = knowledge.products.map(p => {
+        let score = 0;
+        const name = (p.name || '').toLowerCase();
+        const desc = (p.description || '').toLowerCase();
+
+        // Split message into words and check if they appear in product name/desc
+        const words = lowerMsg.split(/\s+/).filter(w => w.length > 3); // Filter short words
+        words.forEach(w => {
+          if (name.includes(w)) score += 5;
+          if (desc.includes(w)) score += 1;
+        });
+
+        return { product: p, score };
+      });
+
+      // Sort by score desc
+      scoredProducts.sort((a, b) => b.score - a.score);
+
+      // Take top 5
+      productsToShow = scoredProducts.slice(0, 5).map(item => ({
+        name: item.product.name,
+        price: item.product.price,
+        imageUrl: item.product.imageUrl || '',
+        url: item.product.url || '',
+        description: item.product.description || ''
       }));
     }
 
@@ -730,4 +792,43 @@ export const getSeenChats = async (req, res) => {
   }
 };
 
-export default { initChatSession, sendMessage, getChatHistory };
+// ========== Track Conversion ==========
+export const trackConversion = async (req, res) => {
+  try {
+    const apiKeyString = req.headers['x-api-key'];
+    const { sessionId, type, value, metadata } = req.body;
+
+    if (!apiKeyString) return res.status(401).json({ success: false, message: 'API key required' });
+    if (!sessionId || !type) return res.status(400).json({ success: false, message: 'Session ID and Type required' });
+
+    const apiKey = await ApiKey.findOne({ key: apiKeyString }).populate('user');
+    if (!apiKey || !apiKey.isActive) return res.status(401).json({ success: false, message: 'Invalid API key' });
+
+    const conversation = await ChatConversation.findOne({
+      user: apiKey.user._id,
+      sessionId: sessionId
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
+    // Add conversion
+    conversation.conversions.push({
+      type,
+      value: value || 0,
+      metadata: metadata || {},
+      timestamp: new Date()
+    });
+    conversation.hasConversion = true;
+
+    await conversation.save();
+
+    return res.status(200).json({ success: true, message: 'Conversion tracked' });
+  } catch (err) {
+    console.error('Conversion tracking error:', err);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export default { initChatSession, sendMessage, getChatHistory, trackConversion, checkCustomer, getAllConversations, getConversationById, markChatsAsSeen, getSeenChats };

@@ -19,7 +19,11 @@ const userActivitySchema = new mongoose.Schema(
         'plan_assigned',
         'plan_expired',
         'password_changed',
-        'status_changed'
+        'status_changed',
+        'invitation_sent',
+        'invitation_resent',
+        'invitation_cancelled',
+        'invitation_accepted'
       ]
     },
     performedBy: {

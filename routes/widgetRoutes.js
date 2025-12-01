@@ -1,14 +1,15 @@
 // routes/widgetRoutes.js
 import express from 'express';
 import {
-  initChatSession,
-  sendMessage,
-  getChatHistory,
-  checkCustomer,   // <-- import new controller
-  getAllConversations,
-  getConversationById,
-  markChatsAsSeen,
-  getSeenChats
+    initChatSession,
+    sendMessage,
+    getChatHistory,
+    checkCustomer,
+    getAllConversations,
+    getConversationById,
+    markChatsAsSeen,
+    getSeenChats,
+    trackConversion // <-- import new controller
 } from '../controllers/chatWidgetController.js';
 import { rateLimitMiddleware } from '../middleware/rateLimit.js';
 import { protect } from '../middleware/auth.js';
@@ -16,9 +17,10 @@ import { protect } from '../middleware/auth.js';
 const router = express.Router();
 
 // Public routes (no auth, but need API key)
-router.get('/check-customer', rateLimitMiddleware, checkCustomer);   // <-- NEW
+router.get('/check-customer', rateLimitMiddleware, checkCustomer);
 router.post('/init', rateLimitMiddleware, initChatSession);
 router.post('/chat', rateLimitMiddleware, sendMessage);
+router.post('/conversion', rateLimitMiddleware, trackConversion); // <-- NEW
 
 router.get('/all', protect, getAllConversations);
 

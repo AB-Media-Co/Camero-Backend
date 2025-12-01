@@ -29,19 +29,19 @@ const chatConversationSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     apiKey: { type: mongoose.Schema.Types.ObjectId, ref: 'ApiKey', required: true },
     sessionId: { type: String, required: true, unique: true, index: true },
-    
+
     // --- Chat Identification ---
-    
+
     // Random friendly name like "Indigo Zebra", "Silver Kitty"
-    chatName: { 
-      type: String, 
+    chatName: {
+      type: String,
       default: generateChatName
     },
 
     // Optional customer ID (for future use)
-    customerId: { 
-      type: String, 
-      default: "" 
+    customerId: {
+      type: String,
+      default: ""
     },
 
     // 3. Renamed "messages" to "conversation"
@@ -70,7 +70,21 @@ const chatConversationSchema = new mongoose.Schema(
       referrer: String
     },
     status: { type: String, default: 'active' },
-    totalTokens: { type: Number, default: 0 }
+    totalTokens: { type: Number, default: 0 },
+
+    // --- Conversion Tracking ---
+    hasConversion: { type: Boolean, default: false, index: true },
+    conversions: [{
+      type: {
+        type: String,
+        enum: ['lead', 'purchase', 'booking', 'enquiry', 'custom'],
+        required: true
+      },
+      value: { type: Number, default: 0 },
+      currency: { type: String, default: 'USD' },
+      timestamp: { type: Date, default: Date.now },
+      metadata: { type: Object }
+    }]
   },
   { timestamps: true }
 );

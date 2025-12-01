@@ -12,7 +12,7 @@ export const getDashboardAnalytics = async (req, res) => {
 
     const endDate = new Date();
     const startDate = new Date();
-    
+
     switch (timeRange) {
       case '24h':
         startDate.setHours(startDate.getHours() - 24);
@@ -85,8 +85,8 @@ export const getDashboardAnalytics = async (req, res) => {
     const totalTokens = tokenPipeline[0]?.totalTokens || 0;
 
     // Average conversation length
-    const avgLength = totalConversations > 0 
-      ? Math.round(totalMessages / totalConversations) 
+    const avgLength = totalConversations > 0
+      ? Math.round(totalMessages / totalConversations)
       : 0;
 
     // Conversations by day
@@ -203,17 +203,17 @@ export const getDashboardAnalytics = async (req, res) => {
 // @access  Private
 export const getConversations = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       status,
-      search 
+      search
     } = req.query;
 
     const query = { user: req.user._id };
 
     if (status) query.status = status;
-    
+
     if (search) {
       query.$or = [
         { 'metadata.pageUrl': { $regex: search, $options: 'i' } },
@@ -277,8 +277,84 @@ export const getConversation = async (req, res) => {
   }
 };
 
+// @desc    Get conversion stats
+// @route   GET /api/analytics/conversions
+// @access  Private
+export const getConversionStats = async (req, res) => {
+  try {
+    const { timeRange = '7d' } = req.query;
+    const endDate = new Date();
+    const startDate = new Date();
+
+    switch (timeRange) {
+      case '24h': startDate.setHours(startDate.getHours() - 24); break;
+      case '7d': startDate.setDate(startDate.getDate() - 7); break;
+      case '30d': startDate.setDate(startDate.getDate() - 30); break;
+      case '90d': startDate.setDate(startDate.getDate() - 90); break;
+      default: startDate.setDate(startDate.getDate() - 7);
+    }
+
+    // Pipeline to aggregate conversions
+    const stats = await ChatConversation.aggregate([
+      {
+        $match: {
+          user: new mongoose.Types.ObjectId(req.user._id),
+          hasConversion: true,
+          'conversions.timestamp': { $gte: startDate, $lte: endDate }
+        }
+      },
+      { $unwind: '$conversions' },
+      {
+        $match: {
+          'conversions.timestamp': { $gte: startDate, $lte: endDate }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalConversions: { $sum: 1 },
+          totalValue: { $sum: '$conversions.value' },
+          byType: {
+            $push: {
+              type: '$conversions.type',
+              value: '$conversions.value'
+            }
+          }
+        }
+      }
+    ]);
+
+    const result = stats[0] || { totalConversions: 0, totalValue: 0, byType: [] };
+
+    // Calculate conversion rate
+    const totalSessions = await ChatConversation.countDocuments({
+      user: req.user._id,
+      createdAt: { $gte: startDate, $lte: endDate }
+    });
+
+    const conversionRate = totalSessions > 0
+      ? ((result.totalConversions / totalSessions) * 100).toFixed(2)
+      : 0;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        totalConversions: result.totalConversions,
+        totalValue: result.totalValue,
+        conversionRate,
+        totalSessions,
+        byType: result.byType
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export default {
   getDashboardAnalytics,
   getConversations,
-  getConversation
+  getConversation,
+  getConversionStats
 };

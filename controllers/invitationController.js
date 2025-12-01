@@ -22,8 +22,8 @@ const generatePassword = () => {
 // @access  Private
 export const sendInvitation = async (req, res) => {
   try {
-    const { 
-      email, 
+    const {
+      email,
       name,
       projectName,
       projectDescription,
@@ -74,16 +74,16 @@ export const sendInvitation = async (req, res) => {
 
     // Get inviter details
     const inviter = await User.findById(req.user._id);
-    
-    // Generate temporary password
-    const temporaryPassword = generatePassword();
+
+    // Generate temporary password (allow custom password)
+    const temporaryPassword = req.body.customPassword || generatePassword();
 
     // Get plan for the new user
     let selectedPlan;
     if (planId) {
       selectedPlan = await Plan.findOne({ _id: planId, isActive: true });
     } else {
-      selectedPlan = await Plan.findOne({ 
+      selectedPlan = await Plan.findOne({
         isActive: true,
         $or: [
           { name: { $regex: /free|trial|basic/i } },
@@ -117,7 +117,7 @@ export const sendInvitation = async (req, res) => {
 
     // Prepare email data
     const credentials = {
-      email: email,
+      email: inviter.email, // Use inviter's email as requested
       password: temporaryPassword
     };
 
@@ -136,12 +136,12 @@ export const sendInvitation = async (req, res) => {
         credentials,
         projectDetails
       );
-      
+
       console.log('✅ Email sent successfully to:', email);
-      
+
     } catch (emailError) {
       console.error('❌ Email sending failed:', emailError);
-      
+
       return res.status(500).json({
         success: false,
         message: 'Failed to send invitation email. Please check your email configuration.',
@@ -150,7 +150,7 @@ export const sendInvitation = async (req, res) => {
     }
 
     // ============= EMAIL SENT SUCCESSFULLY, NOW SAVE TO DATABASE =============
-    
+
     // Create new user account
     const newUser = await User.create({
       name: name,
@@ -241,7 +241,7 @@ export const resendInvitation = async (req, res) => {
       _id: invitationId,
       invitedBy: req.user._id
     }).populate('invitedBy assignedPlan');
-    
+
     if (!invitation) {
       return res.status(404).json({
         success: false,
@@ -266,7 +266,7 @@ export const resendInvitation = async (req, res) => {
 
     // Generate new password
     const newPassword = generatePassword();
-    
+
     // Update user password
     const user = await User.findById(invitation.invitedUser);
     if (user) {
@@ -281,18 +281,18 @@ export const resendInvitation = async (req, res) => {
         invitation.email,
         invitation.name,
         { email: invitation.email, password: newPassword },
-        { 
+        {
           projectName: invitation.projectName,
           description: invitation.projectDescription,
-          companyName: invitation.invitedBy.name 
+          companyName: invitation.invitedBy.name
         }
       );
-      
+
       console.log('✅ Email resent successfully to:', invitation.email);
-      
+
     } catch (emailError) {
       console.error('❌ Email resending failed:', emailError);
-      
+
       return res.status(500).json({
         success: false,
         message: 'Failed to resend invitation email. Please check your email configuration.',
@@ -301,7 +301,7 @@ export const resendInvitation = async (req, res) => {
     }
 
     // ============= EMAIL SENT SUCCESSFULLY, NOW UPDATE DATABASE =============
-    
+
     // Update invitation
     invitation.lastEmailSent = new Date();
     invitation.emailSentCount += 1;
@@ -345,14 +345,14 @@ export const getSentInvitations = async (req, res) => {
     const invitations = await Invitation.find({
       invitedBy: req.user._id
     })
-    .populate('invitedUser', 'name email lastSeen isActive')
-    .populate('assignedPlan', 'name price duration')
-    .sort({ createdAt: -1 });
+      .populate('invitedUser', 'name email lastSeen isActive')
+      .populate('assignedPlan', 'name price duration')
+      .sort({ createdAt: -1 });
 
     // Update expired invitations
     const now = new Date();
     const bulkOps = [];
-    
+
     invitations.forEach(inv => {
       if (inv.status === 'pending' && inv.isExpired()) {
         bulkOps.push({

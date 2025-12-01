@@ -8,7 +8,7 @@ const nudgeSchema = new mongoose.Schema({
     },
     type: {
         type: String,
-        enum: ['homepage', 'collection', 'product', 'custom'],
+        enum: ['homepage', 'collection', 'product', 'custom', 'super_nudge', 'post_checkout', 'browsing_history'],
         required: true
     },
     category: {
@@ -29,6 +29,25 @@ const nudgeSchema = new mongoose.Schema({
     message: {
         type: String,
         required: true
+    },
+    textConfigType: {
+        type: String,
+        enum: ['conversion', 'custom', 'quiz'],
+        default: 'custom'
+    },
+    productConfigType: {
+        type: String,
+        enum: ['best_selling', 'newest', 'custom'],
+        default: 'best_selling'
+    },
+    offerConfigType: {
+        type: String,
+        enum: ['direct', 'wheel'],
+        default: 'direct'
+    },
+    collectLeads: {
+        type: Boolean,
+        default: false
     },
     productDetails: {
         productId: String,
@@ -60,12 +79,23 @@ const nudgeSchema = new mongoose.Schema({
             default: ['mobile', 'desktop']
         }
     },
+    quickReplies: {
+        type: [String],
+        default: ['Ask Me Anything']
+    },
     appearance: {
         position: {
             type: String,
             default: 'bottom-right'
         },
-        // Add more appearance settings if needed (colors are usually global or per widget)
+        bgColor: {
+            type: String,
+            default: '#ff9800'
+        },
+        btnColor: {
+            type: String,
+            default: '#1a2b4b'
+        }
     },
     stats: {
         views: {
@@ -85,9 +115,6 @@ const nudgeSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Ensure only one active nudge per type per user (optional, but good for "Welcome Nudge" logic)
-// nudgeSchema.index({ user: 1, type: 1 }, { unique: true }); 
-// Commented out unique index to allow multiple custom nudges, but we might want to enforce it for 'homepage' etc. logic later.
 
 const Nudge = mongoose.model('Nudge', nudgeSchema);
 

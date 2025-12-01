@@ -14,7 +14,7 @@ const transporter = nodemailer.createTransport({
 // Professional invitation email template
 export const sendInvitationEmail = async (inviterName, inviteeEmail, inviteeName, credentials, projectDetails) => {
   const loginLink = `${config.frontendUrl}/login?email=${encodeURIComponent(credentials.email)}&prefill=true`;
-  
+
   const mailOptions = {
     from: `"${projectDetails.companyName || 'AI Assistant Platform'}" <${config.emailUser}>`,
     to: inviteeEmail,

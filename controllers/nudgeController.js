@@ -32,7 +32,20 @@ export const getNudgeById = async (req, res) => {
 // @access  Private
 export const createNudge = async (req, res) => {
     try {
-        const { type, name, message, triggers, appearance } = req.body;
+        const {
+            type,
+            name,
+            message,
+            triggers,
+            appearance,
+            quickReplies,
+            productDetails,
+            offerDetails,
+            textConfigType,
+            productConfigType,
+            offerConfigType,
+            collectLeads
+        } = req.body;
 
         const nudge = await Nudge.create({
             user: req.user._id,
@@ -40,7 +53,14 @@ export const createNudge = async (req, res) => {
             name,
             message,
             triggers,
-            appearance
+            appearance,
+            quickReplies,
+            productDetails,
+            offerDetails,
+            textConfigType,
+            productConfigType,
+            offerConfigType,
+            collectLeads
         });
 
         res.status(201).json({ success: true, data: nudge });

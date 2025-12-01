@@ -1,8 +1,10 @@
 (function () {
   'use strict';
 
-  // const WIDGET_API = 'http://localhost:5000/api/widget';
-  const WIDGET_API = 'https://camero.myabmedia.com/api/widget';
+  const isLocalhost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname);
+  const WIDGET_API = isLocalhost
+    ? 'http://localhost:5000/api/widget'
+    : 'https://camero.myabmedia.com/api/widget';
 
 
   const fetchWithTimeout = (url, opts = {}, timeout = 10000) => {
@@ -33,7 +35,7 @@
 
       console.log('💬 Chat Widget Loaded');
       if (this.sessionId) {
-        console.log('📦 Existing session found:', this.chatName || this.sessionId);
+        console.log('� Existing session found:', this.chatName || this.sessionId);
       }
 
       this.injectStyles();
@@ -77,12 +79,12 @@
         .chat-msg-content blockquote { border-left: 3px solid #17876E; margin: 10px 0; padding-left: 12px; font-style: italic; color: #666; }
         
         /* Product Carousel Styles */
-        .product-carousel-wrapper { margin-top: 12px; }
+        .product-carousel-wrapper { margin-top: 16px; margin-bottom: 8px; }
         .product-carousel { 
           display: flex; 
-          gap: 10px; 
+          gap: 12px; 
           overflow-x: auto; 
-          padding: 8px 4px; 
+          padding: 4px 4px 16px 4px; /* Bottom padding for shadow */
           scroll-snap-type: x mandatory;
           -webkit-overflow-scrolling: touch;
           scrollbar-width: thin;
@@ -90,28 +92,67 @@
         .product-carousel::-webkit-scrollbar { height: 4px; }
         .product-carousel::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
         .product-carousel::-webkit-scrollbar-thumb { background: #17876E; border-radius: 10px; }
+        
         .product-card {
-          flex: 0 0 160px;
+          flex: 0 0 180px;
           scroll-snap-align: start;
           background: #fff;
-          border-radius: 10px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          border-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
           overflow: hidden;
           transition: transform 0.2s, box-shadow 0.2s;
-          border: 1px solid #eee;
+          border: 1px solid rgba(0,0,0,0.05);
+          display: flex;
+          flex-direction: column;
         }
-        .product-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-        .product-card img { width: 100%; height: 100px; object-fit: cover; background: #f5f5f5; }
-        .product-card-body { padding: 10px; }
-        .product-card-title { font-weight: 600; font-size: 12px; margin-bottom: 4px; color: #333; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 32px; }
-        .product-card-price { font-weight: 700; font-size: 13px; color: #17876E; margin-bottom: 6px; }
-        .product-card-btn { display: block; width: 100%; padding: 6px; background: #17876E; color: white; border: none; border-radius: 5px; font-size: 11px; font-weight: 500; cursor: pointer; text-align: center; text-decoration: none; transition: background 0.2s; }
+        .product-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+        
+        .product-card img { width: 100%; height: 120px; object-fit: cover; background: #f9f9f9; border-bottom: 1px solid #f0f0f0; }
+        
+        .product-card-body { padding: 12px; display: flex; flex-direction: column; flex: 1; }
+        
+        .product-card-title { 
+          font-weight: 600; 
+          font-size: 13px; 
+          margin-bottom: 6px; 
+          color: #222; 
+          line-height: 1.4; 
+          display: -webkit-box; 
+          -webkit-line-clamp: 2; 
+          -webkit-box-orient: vertical; 
+          overflow: hidden; 
+          height: 36px; /* Fixed height for 2 lines */
+        }
+        
+        .product-card-price { 
+          font-weight: 700; 
+          font-size: 14px; 
+          color: #17876E; 
+          margin-bottom: 12px; 
+        }
+        
+        .product-card-btn { 
+          margin-top: auto; 
+          display: block; 
+          width: 100%; 
+          padding: 10px; 
+          background: #17876E; 
+          color: white; 
+          border: none; 
+          border-radius: 8px; 
+          font-size: 12px; 
+          font-weight: 600; 
+          cursor: pointer; 
+          text-align: center; 
+          text-decoration: none; 
+          transition: background 0.2s; 
+        }
         .product-card-btn:hover { background: #14725d; }
         
         /* No image placeholder */
         .product-img-placeholder { 
           width: 100%; 
-          height: 100px; 
+          height: 120px; 
           background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%); 
           display: flex; 
           align-items: center; 
@@ -137,14 +178,8 @@
 
       // Process bold: **text** (do this before italic to avoid conflicts)
       formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-      // Process italic: *text* (single asterisk)
       formatted = formatted.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
-
-      // Process inline code: `code`
       formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-      // Process links: [text](url)
       formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
       // Split into lines for list processing
@@ -302,25 +337,181 @@
         return;
       }
 
-      const existingNudge = document.getElementById('ai-nudge-popup');
-      if (existingNudge) existingNudge.remove();
+      // Check triggers
+      this.handleTriggers(nudge, () => {
+        const existingNudge = document.getElementById('ai-nudge-popup');
+        if (existingNudge) existingNudge.remove();
+        this.showNudgeUI(nudge);
+      });
+    }
 
-      this.showNudgeUI(nudge);
+    handleTriggers(nudge, callback) {
+      const triggers = nudge.triggers || {};
+      const { timeDelay = 0, scrollDepth = 0, deviceTargeting = [] } = triggers;
+
+      // Device Targeting
+      const isMobile = window.innerWidth <= 768;
+      const targetMobile = deviceTargeting.includes('mobile');
+      const targetDesktop = deviceTargeting.includes('desktop');
+
+      if (deviceTargeting.length > 0) {
+        if (isMobile && !targetMobile) return;
+        if (!isMobile && !targetDesktop) return;
+      }
+
+      let timeConditionMet = timeDelay === 0;
+      let scrollConditionMet = scrollDepth === 0;
+
+      const checkAllConditions = () => {
+        if (timeConditionMet && scrollConditionMet) {
+          callback();
+        }
+      };
+
+      // Time Delay
+      if (timeDelay > 0) {
+        setTimeout(() => {
+          timeConditionMet = true;
+          checkAllConditions();
+        }, timeDelay * 1000);
+      }
+
+      // Scroll Depth
+      if (scrollDepth > 0) {
+        const handleScroll = () => {
+          const scrollTop = window.scrollY;
+          const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+          const scrollPercent = (scrollTop / docHeight) * 100;
+
+          if (scrollPercent >= scrollDepth) {
+            scrollConditionMet = true;
+            window.removeEventListener('scroll', handleScroll);
+            checkAllConditions();
+          }
+        };
+        window.addEventListener('scroll', handleScroll);
+      } else {
+        checkAllConditions();
+      }
     }
 
     showNudgeUI(nudge) {
-      // ❌ koi isOpen check nahi
       const themeColor = this.config?.interfaceColor || '#17876E';
       const position = nudge.appearance?.position || 'bottom-right';
+      const bgColor = nudge.appearance?.bgColor || '#ffffff';
+      const btnColor = nudge.appearance?.btnColor || themeColor;
 
       const bottomOffset = '90px';
-      const rightOffset = '20px';
+      const rightOffset = position === 'bottom-right' ? '20px' : 'auto';
+      const leftOffset = position === 'bottom-left' ? '20px' : 'auto';
+
+      if (nudge.messageType === 'text' && nudge.textConfigType === 'conversion') {
+        const bubbles = nudge.conversationStarters || ['What are the best air purifiers available?', 'Do you offer a warranty on kitchen appliances?', 'Is same-day delivery available for electronics?'];
+        const bubblesHtml = bubbles.map(msg => `
+          <div class="nudge-bubble-btn" data-msg="${msg}" style="background: ${btnColor}; color: white; padding: 12px 16px; border-radius: 18px 18px 4px 18px; font-size: 0.9rem; box-shadow: 0 2px 8px rgba(0,0,0,0.15); text-align: left; margin-bottom: 10px; cursor: pointer; transition: transform 0.2s; width: 100%;">
+            ${msg}
+          </div>
+        `).join('');
+
+        const containerHtml = `
+          <div id="ai-nudge-popup" style="position: fixed; bottom: ${bottomOffset}; right: ${rightOffset}; left: ${leftOffset}; width: 300px; background: transparent; z-index: 999998; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: flex-end;">
+            <button id="close-nudge" style="background: white; border: none; color: #666; cursor: pointer; font-size: 14px; line-height: 1; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 10px; align-self: flex-end;">✕</button>
+            <div style="width: 100%; display: flex; flex-direction: column; align-items: flex-end;">
+                ${bubblesHtml}
+            </div>
+          </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', containerHtml);
+
+        document.getElementById('close-nudge').onclick = (e) => {
+          e.stopPropagation();
+          document.getElementById('ai-nudge-popup').remove();
+        };
+
+        // Attach click handlers
+        const bubbleBtns = document.querySelectorAll('.nudge-bubble-btn');
+        bubbleBtns.forEach(btn => {
+          btn.onclick = () => {
+            const msg = btn.getAttribute('data-msg');
+            document.getElementById('ai-nudge-popup').remove();
+            this.handleBubbleClick();
+            setTimeout(() => {
+              if (this.isInitialized) {
+                this.sendQuickQuestion(msg);
+              } else {
+                this.sendQuickQuestion(msg);
+              }
+            }, 500);
+          };
+        });
+        return;
+      }
+
+
+
+      // Generate buttons from quickReplies
+      const replies = (nudge.quickReplies && nudge.quickReplies.length > 0)
+        ? nudge.quickReplies
+        : ['Ask Me Anything'];
+
+      const buttonsHtml = replies.map((reply, index) => `
+        <button class="nudge-cta-btn" data-reply="${reply.replace(/"/g, '&quot;')}" style="background: ${btnColor}; color: white; border: none; padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 5px; margin-bottom: 5px; display: inline-block;">
+          ${reply}
+        </button>
+      `).join('');
+
+      // Determine text color based on background brightness (simple heuristic)
+      const textColor = '#333';
 
       const nudgeHTML = `
-    <div id="ai-nudge-popup" style="position: fixed; bottom: ${bottomOffset}; right: ${rightOffset}; width: 300px; background: white; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.15); z-index: 999998; animation: slideUp 0.5s ease; border-left: 4px solid ${themeColor}; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-      <button id="close-nudge" style="position: absolute; top: 8px; right: 8px; background: none; border: none; color: #999; cursor: pointer; font-size: 18px; line-height: 1;">×</button>
-      <div style="font-size: 14px; color: #333; margin-bottom: 12px; line-height: 1.5;">${this.formatMessage(nudge.message)}</div>
-      <button id="nudge-cta" style="background: ${themeColor}; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%;">Ask Me Anything</button>
+    <div id="ai-nudge-popup" style="position: fixed; bottom: ${bottomOffset}; right: ${rightOffset}; left: ${leftOffset}; width: 300px; background: ${bgColor}; border-radius: 12px; box-shadow: 0 5px 20px rgba(0,0,0,0.15); z-index: 999998; animation: slideUp 0.5s ease; padding: 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+      <button id="close-nudge" style="position: absolute; top: -10px; right: -10px; background: white; border: none; color: #666; cursor: pointer; font-size: 14px; line-height: 1; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1);">✕</button>
+      
+      ${nudge.messageType === 'product' ? `
+        <div style="position: relative; margin-top: 10px;">
+            <div style="
+                position: absolute; top: -25px; left: -10px;
+                background: #FFD700; color: #000; padding: 4px 12px;
+                border-radius: 12px; font-size: 0.75rem; font-weight: bold;
+                display: flex; align-items: center; gap: 4px; z-index: 20;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            ">
+                ✨ Top picks
+            </div>
+            <div style="display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px;">
+                ${nudge.productDetails?.productImage ?
+            `<img src="${nudge.productDetails.productImage}" alt="Product" style="width: 60px; height: 60px; border-radius: 8px; object-fit: cover; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.2);" />` :
+            `<div style="width: 60px; height: 60px; background: rgba(255,255,255,0.1); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.6rem; flex-shrink: 0;">No Image</div>`
+          }
+                <div style="text-align: left; color: white;">
+                    <div style="font-size: 0.85rem; line-height: 1.3; margin-bottom: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+                        ${nudge.productDetails?.productName || 'Product Name'}
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                        <span style="font-weight: bold; font-size: 0.95rem;">${nudge.productDetails?.price || '₹0'}</span>
+                        ${nudge.productDetails?.originalPrice ?
+            `<span style="text-decoration: line-through; opacity: 0.7; font-size: 0.75rem;">${nudge.productDetails.originalPrice}</span>` : ''
+          }
+                        ${nudge.productDetails?.discountLabel ?
+            `<span style="font-size: 0.75rem; font-weight: bold;">${nudge.productDetails.discountLabel}</span>` : ''
+          }
+                    </div>
+                </div>
+            </div>
+        </div>
+      ` : ''}
+
+      ${nudge.messageType === 'offer' ? `
+        <div style="text-align: center; margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.2); border-radius: 8px; color: ${textColor};">
+            <div style="font-size: 1.4rem; font-weight: bold;">${nudge.offerDetails?.discountAmount || ''}</div>
+            <div style="font-size: 0.8rem; opacity: 0.9;">Use Code: <strong>${nudge.offerDetails?.discountCode || ''}</strong></div>
+        </div>
+      ` : ''}
+
+      <div style="font-size: 14px; color: ${textColor}; margin-bottom: 12px; line-height: 1.5; font-weight: 500;">${this.formatMessage(nudge.message)}</div>
+      <div id="nudge-buttons-container">
+        ${buttonsHtml}
+      </div>
     </div>
   `;
 
@@ -332,10 +523,26 @@
         // ⚠️ yahan kuch bhi localStorage/sessionStorage mat daalna
       };
 
-      document.getElementById('nudge-cta').onclick = () => {
-        document.getElementById('ai-nudge-popup').remove();
-        this.handleBubbleClick();
-      };
+      // Attach click handlers to all generated buttons
+      const ctaButtons = document.querySelectorAll('.nudge-cta-btn');
+      ctaButtons.forEach(btn => {
+        btn.onclick = () => {
+          const replyText = btn.getAttribute('data-reply');
+          document.getElementById('ai-nudge-popup').remove();
+          this.handleBubbleClick();
+          // Wait for chat to open then send message
+          setTimeout(() => {
+            if (this.isInitialized) {
+              this.sendQuickQuestion(replyText);
+            } else {
+              // If not initialized, we might need to wait or init first
+              // handleBubbleClick calls initChat if needed, so we just need to wait a bit
+              // A better approach would be to pass an initial message to initChat, but for now:
+              this.sendQuickQuestion(replyText);
+            }
+          }, 500);
+        };
+      });
     }
 
 
@@ -677,6 +884,32 @@
       }
     }
 
+    async trackConversion(type, data = {}) {
+      if (!this.sessionId) {
+        console.warn('Cannot track conversion: No active session');
+        return;
+      }
+
+      try {
+        const response = await fetch(`${this.apiUrl}/conversion`, {
+          method: 'POST',
+          headers: this._buildHeaders(),
+          body: JSON.stringify({
+            sessionId: this.sessionId,
+            type,
+            value: data.value,
+            metadata: data.metadata
+          })
+        });
+
+        if (!response.ok) {
+          console.warn('Conversion tracking failed:', response.statusText);
+        }
+      } catch (e) {
+        console.error('Conversion tracking error:', e);
+      }
+    }
+
     async _sendToServer(message) {
       try {
         const response = await fetchWithTimeout(
@@ -743,8 +976,23 @@
     }
   }
 
+  window.CameroAI = window.CameroAI || {};
+
   window.initAIChatWidget = function (config) {
     if (!config?.apiKey) return console.error('API key required');
-    new ChatWidget(config);
+    window.CameroAI.widget = new ChatWidget(config);
   };
+
+  window.CameroAI.trackConversion = function (type, data) {
+    if (window.CameroAI.widget) {
+      window.CameroAI.widget.trackConversion(type, data);
+    } else {
+      console.warn('CameroAI widget not initialized');
+    }
+  };
+
+  // Auto-init if config is present (Async support)
+  if (window.cameroConfig) {
+    window.initAIChatWidget(window.cameroConfig);
+  }
 })();
