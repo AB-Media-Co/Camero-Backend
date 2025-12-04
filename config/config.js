@@ -14,5 +14,6 @@ export const config = {
   // ⭐ OpenAI - Make sure this exists
   defaultOpenAIKey: (process.env.DEFAULT_OPENAI_KEY || '').trim(),
   shopifyApiSecret: process.env.shopifyApiSecret || '',
+  shopifyApiKey: process.env.SHOPIFY_API_KEY,          // from Dev Dashboard
 
 };

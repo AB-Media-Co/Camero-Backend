@@ -1,10 +1,8 @@
 // middleware/auth.js
-
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import { config } from '../config/config.js';
 
-// Existing protect middleware (keep as is)
 export const protect = async (req, res, next) => {
   try {
     let token;
@@ -16,38 +14,64 @@ export const protect = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'Not authorized to access this route'
+        message: 'Not authorized to access this route',
       });
     }
 
-    const decoded = jwt.verify(token, config.jwtSecret);
-    req.user = await User.findById(decoded.id);
+    // 1️⃣ Try: normal app JWT (tumhara purana flow)
+    try {
+      const decoded = jwt.verify(token, config.jwtSecret);
+      const user = await User.findById(decoded.id);
 
-    if (!req.user) {
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      req.user = user;
+      return next();
+    } catch (err) {
+      // normal JWT se verify nahi hua, to Shopify token try karenge
+      console.log('Normal JWT verification failed, trying Shopify session token');
+    }
+
+    // 2️⃣ Try: Shopify session token (App Bridge)
+    try {
+      const shopifyPayload = jwt.verify(token, config.shopifyApiSecret, {
+        algorithms: ['HS256'],
+      });
+
+      // Extra safety checks (Shopify docs ke according)
+      if (shopifyPayload.aud !== config.shopifyApiKey) {
+        throw new Error('Invalid audience for Shopify token');
+      }
+
+      // dest se shop domain nikaalo
+      const destUrl = new URL(shopifyPayload.dest); // e.g. https://abm-testing.myshopify.com
+      const shopDomain = destUrl.hostname;          // abm-testing.myshopify.com
+
+      // Apne User ke storeUrl se match karo (thoda flexible regex)
+      const user = await User.findOne({
+        storeUrl: { $regex: shopDomain.replace('.', '\\.'), $options: 'i' },
+      });
+
+      if (!user) {
+        throw new Error(`No user mapped to shop: ${shopDomain}`);
+      }
+
+      req.user = user;
+      return next();
+    } catch (err2) {
+      console.error('Shopify session token verification failed:', err2);
       return res.status(401).json({
         success: false,
-        message: 'User not found'
+        message: 'Not authorized to access this route',
       });
     }
-
-    next();
   } catch (error) {
-    res.status(401).json({
+    console.error('Auth middleware error:', error);
+    return res.status(401).json({
       success: false,
-      message: 'Not authorized to access this route'
+      message: 'Not authorized to access this route',
     });
   }
-};
-
-// ⭐ NEW - Authorization middleware for role-based access
-export const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `User role ${req.user.role} is not authorized to access this route`
-      });
-    }
-    next();
-  };
 };
