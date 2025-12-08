@@ -16,6 +16,7 @@ import widgetRoutes from './routes/widgetRoutes.js';
 import trainingRoutes from './routes/training.js';
 import integrationRoutes from './routes/integrationRoutes.js';
 import nudgeRoutes from './routes/nudgeRoutes.js';
+import assistantRoutes from './routes/assistantRoutes.js';
 
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -101,6 +102,7 @@ app.use('/api/widget', widgetRoutes);
 app.use('/api/training', trainingRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/nudges', nudgeRoutes);
+app.use('/api/assistant', assistantRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

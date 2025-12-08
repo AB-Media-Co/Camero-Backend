@@ -5,6 +5,7 @@ import ApiKey from '../models/ApiKey.js';
 import User from '../models/User.js';
 import ProductKnowledge from '../models/ProductKnowledge.js';
 import WebsiteEmbedding from '../models/WebsiteEmbedding.js';
+import AssistantConfig from '../models/AssistantConfig.js'; // Imported AssistantConfig
 import { embedSingleText } from '../services/embeddingService.js';
 import { getAIProvider } from '../services/aiProviderService.js';
 import { config as appConfig } from '../config/config.js';
@@ -28,7 +29,118 @@ const cosineSimilarity = (a = [], b = []) => {
 
   const denom = Math.sqrt(aNorm) * Math.sqrt(bNorm);
   if (!denom) return 0;
+  if (!denom) return 0;
   return dot / denom;
+};
+
+// ⭐ NEW: Helper to check if business is open
+const checkBusinessHours = (config) => {
+  if (!config?.businessHoursEnabled || !config?.businessHoursSchedule) {
+    return { isOpen: true }; // Default to open if disabled
+  }
+
+  try {
+    const timeZone = config.businessHoursTimezone || 'UTC';
+    const now = new Date();
+
+    // Get current day string (e.g., "Monday") in target timezone
+    const dayFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone });
+    const currentDay = dayFormatter.format(now);
+
+    // Get current time string (HH:mm) in target timezone
+    const timeFormatter = new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone
+    });
+    const currentTime = timeFormatter.format(now);
+
+    // Find schedule for today
+    const todaySchedule = config.businessHoursSchedule.find(s => s.day === currentDay);
+
+    if (!todaySchedule || !todaySchedule.enabled) {
+      // Closed if no schedule or disabled for today
+      return { isOpen: false, message: config.handoverOfflineMessage || "We are currently offline. Please leave a message." };
+    }
+
+    if (currentTime >= todaySchedule.start && currentTime <= todaySchedule.end) {
+      return { isOpen: true };
+    } else {
+      return { isOpen: false, message: config.handoverOfflineMessage || "We are currently offline. Please leave a message." };
+    }
+  } catch (e) {
+    console.error('Business hours check failed:', e);
+    return { isOpen: true }; // Fallback to open
+  }
+};
+
+// Helper to get effective config
+const getEffectiveConfig = async (user, sessionId, chatName) => {
+  // Debug Log
+  console.log('getEffectiveConfig called for User:', user._id, 'Name:', user.name);
+
+  // Fetch the detailed AssistantConfig
+  const assistantConfig = await AssistantConfig.findOne({ user: user._id, isActive: true });
+  console.log('AssistantConfig found:', !!assistantConfig, 'Last Updated:', assistantConfig?.updatedAt);
+
+  // Fallback to embedded config (legacy)
+  const legacyConfig = user.assistantConfig || {};
+
+  // Base config
+  const config = {
+    sessionId: sessionId,
+    chatName: chatName,
+
+    // Appearance
+    assistantName: assistantConfig?.assistantName || legacyConfig.name || 'AI Assistant',
+    welcomeMessage: assistantConfig?.welcomeNote || `Hi! I'm ${assistantConfig?.assistantName || legacyConfig.name || 'AI Assistant'}. How can I help you today?`,
+    interfaceColor: assistantConfig?.primaryColor || legacyConfig.interfaceColor || '#17876E',
+    avatar: assistantConfig?.avatar || legacyConfig.avatar || 'a1.svg',
+    effect: assistantConfig?.effect || 'none',
+
+    // Desktop Entry Point
+    desktopVisible: assistantConfig?.desktopVisible ?? true,
+    desktopPosition: assistantConfig?.desktopPosition || 'right',
+    desktopMarginLeft: assistantConfig?.desktopMarginLeft ?? 16,
+    desktopMarginBottom: assistantConfig?.desktopMarginBottom ?? 16,
+    desktopButtonSize: assistantConfig?.desktopButtonSize || 'large',
+    desktopShowText: assistantConfig?.desktopShowText ?? true,
+    desktopWidgetText: assistantConfig?.desktopWidgetText || 'Chat with Camero AI',
+
+    // Mobile Entry Point
+    mobileEntryStrategy: assistantConfig?.mobileEntryStrategy || 'same',
+    mobileVisible: assistantConfig?.mobileVisible ?? true,
+    mobileVisibilityType: assistantConfig?.mobileVisibilityType || 'avatar',
+    mobilePosition: assistantConfig?.mobilePosition || 'right',
+    mobileMarginLeft: assistantConfig?.mobileMarginLeft ?? 16,
+    mobileMarginBottom: assistantConfig?.mobileMarginBottom ?? 16,
+    mobileButtonSize: assistantConfig?.mobileButtonSize || 'large',
+
+    // Channels & Languages
+    language: assistantConfig?.language || 'en',
+
+    // Behaviour - Content
+    conversationStarters: assistantConfig?.conversationStarters || {},
+    customInstructions: assistantConfig?.customInstructions || '',
+
+    // Behaviour (if needed by widget)
+    customerMessageLimit: assistantConfig?.customerMessageLimit ?? 20,
+    customerMessageLimitMessage: assistantConfig?.customerMessageLimitMessage || "I've received too many messages from you. Please wait for sometime or connect with us directly on call or WhatsApp at +91-9710000251",
+    showAddToCart: assistantConfig?.showAddToCart ?? true,
+
+    // Legacy fallback for position (if widget uses it directly)
+    position: assistantConfig?.desktopPosition || 'right',
+
+    // Agent Handover & Support
+    businessHoursEnabled: assistantConfig?.businessHoursEnabled || false,
+    businessHoursSchedule: assistantConfig?.businessHoursSchedule || [],
+    businessHoursTimezone: assistantConfig?.businessHoursTimezone || 'UTC',
+    supportContact: assistantConfig?.supportContact || {},
+    handoverOfflineMessage: assistantConfig?.handoverOfflineMessage || ""
+  };
+
+  return config;
 };
 
 // ========== Check if session exists ==========
@@ -58,17 +170,8 @@ export const checkCustomer = async (req, res) => {
       return res.status(200).json({ success: true, exists: false });
     }
 
-    // Prepare config
-    const config = {
-      sessionId: conversation.sessionId,
-      chatName: conversation.chatName,
-      assistantName: apiKey.user.assistantConfig?.name || 'AI Assistant',
-      personality: apiKey.user.assistantConfig?.personality || 'professional',
-      interfaceColor: apiKey.user.assistantConfig?.interfaceColor || '#17876E',
-      avatar: apiKey.user.assistantConfig?.avatar || 'a1.svg',
-      position: apiKey.widgetSettings?.position || 'bottom-right',
-      welcomeMessage: `Hi! I'm ${apiKey.user.assistantConfig?.name || 'AI Assistant'}. How can I help you today?`
-    };
+    // Prepare config using helper
+    const config = await getEffectiveConfig(apiKey.user, conversation.sessionId, conversation.chatName);
 
     // Get recent messages
     let messages = [];
@@ -158,26 +261,53 @@ export const initChatSession = async (req, res) => {
     if (!apiKey || !apiKey.isActive) return res.status(401).json({ success: false, message: 'Invalid API key' });
     if (!apiKey.user) return res.status(401).json({ success: false, message: 'API key not associated with a user' });
 
-    // Prepare config
-    const config = {
-      assistantName: apiKey.user.assistantConfig?.name || 'AI Assistant',
-      interfaceColor: apiKey.user.assistantConfig?.interfaceColor || '#17876E',
-      avatar: apiKey.user.assistantConfig?.avatar || 'a1.svg',
-      welcomeMessage: `Hi! I'm ${apiKey.user.assistantConfig?.name || 'AI Assistant'}. How can I help you today?`,
-    };
+    // Debug Log for Widget Update Issue
+    console.log('Widget Init: Request for User:', apiKey.user._id, 'Name:', apiKey.user.name);
 
-    // Get suggested questions from knowledge base
+    // Prepare config using helper (sessionId/chatName might be updated later if new)
+    let config = await getEffectiveConfig(apiKey.user, null, null);
+
     let suggestedQuestions = [];
     try {
-      const knowledge = await ProductKnowledge.findOne({ user: apiKey.user._id });
+      // 1. Try to get from AssistantConfig (New System) - Context Aware
+      if (config.conversationStarters) {
+        let starters = [];
+        const pageUrl = req.body?.pageUrl || req.headers['referer'] || '';
 
-      if (knowledge?.faqs?.length) {
-        suggestedQuestions = knowledge.faqs
-          .slice(0, 4)
-          .map((f) => f.question)
-          .filter(Boolean);
+        // Determine context based on URL
+        if (pageUrl.includes('/products/')) {
+          starters = config.conversationStarters.product;
+        } else if (pageUrl.includes('/collections/')) {
+          starters = config.conversationStarters.collection;
+        } else {
+          starters = config.conversationStarters.home;
+        }
+
+        // Fallback to home if specific context is empty, or just use what we found
+        if (!starters || starters.length === 0) {
+          starters = config.conversationStarters.home;
+        }
+
+        if (starters && Array.isArray(starters)) {
+          suggestedQuestions = starters
+            .filter(starter => starter.enabled)
+            .map(starter => starter.label)
+            .filter(Boolean);
+        }
       }
 
+      // 2. Fallback to Knowledge Base (Legacy) if no new starters configured
+      if (!suggestedQuestions.length) {
+        const knowledge = await ProductKnowledge.findOne({ user: apiKey.user._id });
+        if (knowledge?.faqs?.length) {
+          suggestedQuestions = knowledge.faqs
+            .slice(0, 4)
+            .map((f) => f.question)
+            .filter(Boolean);
+        }
+      }
+
+      // 3. Fallback to Defaults if still empty
       if (!suggestedQuestions.length) {
         const storeUrl = apiKey.user.storeUrl || '';
         suggestedQuestions = [
@@ -193,7 +323,12 @@ export const initChatSession = async (req, res) => {
       console.error('Error building suggested questions:', e);
     }
 
-    config.suggestedQuestions = suggestedQuestions;
+    config.suggestedQuestions = suggestedQuestions.slice(0, 4); // Limit to 4 max
+
+    // ⭐ Check Business Hours
+    const businessStatus = checkBusinessHours(config);
+    const isOffline = !businessStatus.isOpen;
+    const offlineMessage = businessStatus.message;
 
     // Check if existing session provided by client
     if (clientSessionId) {
@@ -205,6 +340,10 @@ export const initChatSession = async (req, res) => {
       if (existingConversation) {
         console.log('✅ Found existing chat:', existingConversation.chatName);
 
+        // Update config with session details
+        config.sessionId = existingConversation.sessionId;
+        config.chatName = existingConversation.chatName;
+
         return res.status(200).json({
           success: true,
           exists: true,
@@ -213,7 +352,9 @@ export const initChatSession = async (req, res) => {
             chatName: existingConversation.chatName,
             config: config,
             conversation: existingConversation.conversation,
-            nudge: await getNudgeForPage(apiKey.user._id, req.body?.pageUrl || req.headers['referer'])
+            nudge: await getNudgeForPage(apiKey.user._id, req.body?.pageUrl || req.headers['referer']),
+            isOffline, // ⭐ Send offline status
+            offlineMessage
           }
         });
       }
@@ -228,6 +369,10 @@ export const initChatSession = async (req, res) => {
 
     console.log('🆕 New chat session:', newChatName);
 
+    // Update config with new session details
+    config.sessionId = newSessionId;
+    config.chatName = newChatName;
+
     return res.status(200).json({
       success: true,
       exists: false,
@@ -236,7 +381,9 @@ export const initChatSession = async (req, res) => {
         chatName: newChatName,
         config: config,
         conversation: [],
-        nudge: await getNudgeForPage(apiKey.user._id, req.body?.pageUrl || req.headers['referer'])
+        nudge: await getNudgeForPage(apiKey.user._id, req.body?.pageUrl || req.headers['referer']),
+        isOffline, // ⭐ Send offline status
+        offlineMessage
       }
     });
 
@@ -414,6 +561,18 @@ export const sendMessage = async (req, res) => {
       }
     }
 
+    // ⭐ NEW: Fetch FRESH AssistantConfig
+    // The apiKey.user object might have stale embedded config. We need the latest from the standalone collection.
+    const freshConfig = await AssistantConfig.findOne({ user: apiKey.user._id, isActive: true });
+
+    // Merge fresh config into user object for buildSystemPrompt
+    if (freshConfig) {
+      apiKey.user.assistantConfig = {
+        ...apiKey.user.assistantConfig,
+        ...freshConfig.toObject()
+      };
+    }
+
     const systemPrompt = buildSystemPrompt(apiKey.user, knowledge, ragContextText + pastContext);
 
     // Build conversation history for AI context
@@ -438,8 +597,18 @@ export const sendMessage = async (req, res) => {
 
     // 7. Call AI
     const aiProvider = getAIProvider(providerName, providerKey);
+
+    // ⭐ Model Selection Logic
+    let modelName = 'gpt-3.5-turbo'; // Default
+    const savedModel = apiKey.user?.assistantConfig?.aiModel || 'lite';
+
+    if (savedModel === 'pro') modelName = 'gpt-4-turbo';
+    if (savedModel === 'ultra') modelName = 'gpt-4o';
+
+    console.log(`🤖 Using Model: ${modelName} (${savedModel})`);
+
     const aiResponse = await aiProvider.chat(aiMessages, {
-      model: 'gpt-3.5-turbo',
+      model: modelName,
       temperature: 0.7,
       maxTokens: 500
     });
@@ -608,7 +777,31 @@ const buildSystemPrompt = (user, knowledge, ragContext = '') => {
   } else if (personality === 'playful') {
     prompt += ' You are fun, energetic, and engaging. Use humor and emojis to make conversations enjoyable.';
   } else {
+    // Default to professional
     prompt += ' You are professional, helpful, and courteous. Provide clear and concise answers.';
+  }
+
+  // ⭐ NEW: Language Instruction
+  const language = user.assistantConfig?.language || 'en';
+  const langMap = {
+    'en': 'English',
+    'es': 'Spanish',
+    'fr': 'French',
+    'de': 'German',
+    'it': 'Italian',
+    'pt': 'Portuguese',
+    'nl': 'Dutch',
+    'hi': 'Hindi',
+    'zh': 'Chinese',
+    'ja': 'Japanese'
+  };
+  const targetLang = langMap[language] || 'English';
+  prompt += `\n\n**IMPORTANT:** You must ALWAYS reply in **${targetLang}**.`;
+
+  // ⭐ NEW: Custom Instructions from Configuration
+  const customInstructions = user.assistantConfig?.customInstructions || '';
+  if (customInstructions) {
+    prompt += `\n\n**CUSTOM INSTRUCTIONS:**\n${customInstructions}`;
   }
 
   const websiteUrl = user.storeUrl || '';

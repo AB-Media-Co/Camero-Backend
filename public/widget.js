@@ -1,11 +1,60 @@
 (function () {
   'use strict';
-
   const isLocalhost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname);
   const WIDGET_API = isLocalhost
     ? 'http://localhost:5000/api/widget'
     : 'https://camero.myabmedia.com/api/widget';
 
+  const TRANSLATIONS = {
+    en: {
+      typeMessage: 'Type your message...',
+      send: 'Send',
+      online: 'Online',
+      typing: 'Typing...',
+      connectionError: 'Connection Error',
+      tryAgain: 'Try Again',
+      initFailed: 'Failed to initialize chat',
+      welcomeDefault: "Hi! I'm your AI assistant. How can I help you today?",
+      genericError: 'Sorry, I encountered an error. Please try again.',
+      connectionErrorMsg: 'Connection error. Please check your internet and try again.'
+    },
+    es: {
+      typeMessage: 'Escribe tu mensaje...',
+      send: 'Enviar',
+      online: 'En línea',
+      typing: 'Escribiendo...',
+      connectionError: 'Error de conexión',
+      tryAgain: 'Intentar de nuevo',
+      initFailed: 'Error al inicializar el chat',
+      welcomeDefault: "¡Hola! Soy tu asistente de IA. ¿Cómo puedo ayudarte hoy?",
+      genericError: 'Lo siento, encontré un error. Por favor, inténtalo de nuevo.',
+      connectionErrorMsg: 'Error de conexión. Por favor, verifica tu internet e inténtalo de nuevo.'
+    },
+    fr: {
+      typeMessage: 'Tapez votre message...',
+      send: 'Envoyer',
+      online: 'En ligne',
+      typing: 'En train d\'écrire...',
+      connectionError: 'Erreur de connexion',
+      tryAgain: 'Réessayer',
+      initFailed: 'Échec de l\'initialisation du chat',
+      welcomeDefault: "Salut! Je suis votre assistant IA. Comment puis-je vous aider aujourd'hui?",
+      genericError: 'Désolé, j\'ai rencontré une erreur. Veuillez réessayer.',
+      connectionErrorMsg: 'Erreur de connexion. Veuillez vérifier votre internet et réessayer.'
+    },
+    de: {
+      typeMessage: 'Geben Sie Ihre Nachricht ein...',
+      send: 'Senden',
+      online: 'Online',
+      typing: 'Schreiben...',
+      connectionError: 'Verbindungsfehler',
+      tryAgain: 'Erneut versuchen',
+      initFailed: 'Chat konnte nicht initialisiert werden',
+      welcomeDefault: "Hallo! Ich bin Ihr KI-Assistent. Wie kann ich Ihnen heute helfen?",
+      genericError: 'Entschuldigung, ein Fehler ist aufgetreten. Bitte versuchen Sie es erneut.',
+      connectionErrorMsg: 'Verbindungsfehler. Bitte überprüfen Sie Ihr Internet und versuchen Sie es erneut.'
+    }
+  };
 
   const fetchWithTimeout = (url, opts = {}, timeout = 10000) => {
     const controller = new AbortController();
@@ -39,11 +88,17 @@
       }
 
       this.injectStyles();
+      // Render immediately so user sees the bubble. Config update will re-render it later.
       this.renderChatBubble();
-      this.checkAndMaybeAutoRestore()
-      // Auto-check for existing session
-      // setTimeout(() => this.checkAndMaybeAutoRestore(), 500);
+      this.checkAndMaybeAutoRestore();
     }
+
+    // Helper for translations
+    t(key) {
+      const lang = this.config?.language || 'en';
+      return TRANSLATIONS[lang]?.[key] || TRANSLATIONS['en'][key];
+    }
+
 
     // Inject all widget styles
     injectStyles() {
@@ -79,6 +134,21 @@
         .chat-msg-content blockquote { border-left: 3px solid #17876E; margin: 10px 0; padding-left: 12px; font-style: italic; color: #666; }
         
         /* Product Carousel Styles */
+        .product-carousel-wrapper { margin-top: 16px; margin-bottom: 8px; }
+
+        /* Widget Effects - Matching Tailwind */
+        @keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
+        .animate-ping { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; }
+
+        @keyframes pulse { 50% { opacity: .5; } }
+        .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        
+        /* Helper classes for positioning */
+        .absolute-inset-0 { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+        .rounded-full { border-radius: 9999px; }
+        .status-dot { position: absolute; top: 0; right: 0; width: 12px; height: 12px; background-color: #22c55e; border: 2px solid white; border-radius: 9999px; z-index: 20; }
+
+
         .product-carousel-wrapper { margin-top: 16px; margin-bottom: 8px; }
         .product-carousel { 
           display: flex; 
@@ -310,24 +380,184 @@
       return headers;
     }
 
+    _getChannelButtonHtml() {
+      const activeChannel = this.config?.activeChannel;
+      const contact = this.config?.supportContact || {};
+      let href = '';
+      let iconPath = '';
+      let viewBox = '0 0 448 512';
+
+      if (activeChannel === 'Wp' && contact.whatsapp) {
+        const num = (contact.whatsappCode || '') + contact.whatsapp;
+        href = `https://wa.me/${num.replace(/\+/g, '')}`;
+        iconPath = 'M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z';
+      } else if (activeChannel === 'Insta' && contact.instagram) {
+        const handle = contact.instagram.replace('@', '');
+        href = `https://instagram.com/${handle}`;
+        iconPath = 'M224.1 141c-63.6 0-114.9 51.3-114.9 114.9s51.3 114.9 114.9 114.9S339 319.5 339 255.9 287.7 141 224.1 141zm0 189.6c-41.1 0-74.7-33.5-74.7-74.7s33.5-74.7 74.7-74.7 74.7 33.5 74.7 74.7-33.5 74.7-74.7 74.7zm146.4-194.3c0 14.9-12 26.8-26.8 26.8-14.9 0-26.8-12-26.8-26.8s12-26.8 26.8-26.8 26.8 12 26.8 26.8zm76.1 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8zM398.8 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1z';
+      } else if (activeChannel === 'Email' && contact.email) {
+        href = `mailto:${contact.email}`;
+        iconPath = 'M502.3 190.8c3.9-3.1 9.7-.2 9.7 4.7V400c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V195.6c0-5 5.7-7.8 9.7-4.7 22.4 17.4 52.1 39.5 154.1 113.6 21.1 15.4 56.7 47.8 92.2 47.6 35.7.3 72-32.8 92.3-47.6 102-74.1 131.6-96.3 154-113.7zM256 320c23.2.4 56.6-29.2 73.4-41.4 132.7-96.3 142.8-104.7 173.4-128.7 5.8-4.5 9.2-11.5 9.2-18.9v-19c0-26.5-21.5-48-48-48H48C21.5 64 0 85.5 0 112v19c0 7.4 3.4 14.3 9.2 18.9 30.6 23.9 40.7 32.4 173.4 128.7 16.8 12.2 50.2 41.8 73.4 41.4z';
+        viewBox = '0 0 512 512';
+      }
+
+      if (!href) return '';
+
+      return `<a href="${href}" target="_blank" style="margin-right:8px; display:flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.2); color:white; text-decoration:none; transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+        <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="${viewBox}" height="16px" width="16px" xmlns="http://www.w3.org/2000/svg"><path d="${iconPath}"></path></svg>
+      </a>`;
+    }
+
+
+    getWidgetConfig() {
+      const isMobile = window.innerWidth < 768;
+      const c = this.config || {};
+
+      // Default values
+      const defaults = {
+        visible: true,
+        position: 'right',
+        xOffset: 20,
+        yOffset: 20,
+        size: 'large',
+        showText: true,
+        text: 'Chat with us',
+        avatar: c.avatar || 'a1.svg'
+      };
+
+      if (isMobile) {
+        if (c.mobileEntryStrategy === 'same') {
+          return {
+            visible: c.desktopVisible ?? defaults.visible,
+            position: c.desktopPosition || defaults.position,
+            xOffset: c.desktopMarginLeft || defaults.xOffset,
+            yOffset: c.desktopMarginBottom || defaults.yOffset,
+            size: c.desktopButtonSize || defaults.size,
+            showText: c.desktopShowText ?? defaults.showText,
+            text: c.desktopWidgetText || defaults.text,
+            avatar: c.avatar || defaults.avatar
+          };
+        } else {
+          return {
+            visible: c.mobileVisible ?? defaults.visible,
+            position: c.mobilePosition || defaults.position,
+            xOffset: c.mobileMarginLeft || defaults.xOffset,
+            yOffset: c.mobileMarginBottom || defaults.yOffset,
+            size: c.mobileButtonSize || defaults.size,
+            showText: false, // Mobile custom usually hides text
+            text: '',
+            avatar: c.avatar || defaults.avatar
+          };
+        }
+      } else {
+        // Desktop
+        return {
+          visible: c.desktopVisible ?? defaults.visible,
+          position: c.desktopPosition || defaults.position,
+          xOffset: c.desktopMarginLeft || defaults.xOffset,
+          yOffset: c.desktopMarginBottom || defaults.yOffset,
+          size: c.desktopButtonSize || defaults.size,
+          showText: c.desktopShowText ?? defaults.showText,
+          text: c.desktopWidgetText || defaults.text,
+          avatar: c.avatar || defaults.avatar
+        };
+      }
+    }
+
     renderChatBubble() {
       const existingWidget = document.getElementById('ai-chat-widget');
       if (existingWidget) existingWidget.remove();
 
+      const config = this.getWidgetConfig();
+      // Previously hidden entire widget if !visible. Now user wants Avatar ALWAYS visible.
+      // if (!config.visible) return; 
+
+      const themeColor = this.config?.interfaceColor || '#17876E';
+      const sizePx = config.size === 'small' ? 40 : 60;
+
+      // Calculate position styles
+      const bottom = `${config.yOffset}px`;
+      const side = config.position === 'left' ? 'left' : 'right';
+      const sideValue = `${config.xOffset}px`;
+
+      // Avatar handling
+      let avatarFileName = config.avatar;
+      if (avatarFileName && avatarFileName.startsWith('/loginassets/')) {
+        avatarFileName = avatarFileName.substring(13);
+      } else if (avatarFileName && avatarFileName.startsWith('avatar-')) {
+        const avatarNumber = avatarFileName.replace('avatar-', '').replace('.png', '');
+        avatarFileName = `a${avatarNumber}.svg`;
+      }
+      const avatarPath = `${this.apiUrl.replace('/api/widget', '')}/loginassets/${avatarFileName}`;
+
+      // Effect Handling logic matching Preview component
+      const effect = this.config?.effect || 'none';
+
+      // Ripple is an inner div
+      const rippleHtml = effect === 'ripple'
+        ? `<div class="absolute-inset-0 rounded-full animate-ping" style="background: ${themeColor}; opacity: 0.75;"></div>`
+        : '';
+
+      // Dot/Blink is a sibling div (positioned absolute)
+      const dotHtml = (effect === 'dot' || effect === 'blink')
+        ? `<div class="status-dot ${effect === 'blink' ? 'animate-pulse' : ''}"></div>`
+        : '';
+
+      // Determine Layout: Row for Left (Avatar->Text), Row-Reverse for Right (Text<-Avatar)
+      const isLeft = side === 'left';
+      const flexDirection = isLeft ? 'row' : 'row-reverse';
+
+      // Text Visibility: Show text ONLY if "Entry Point Visible" (config.visible) AND "Show Text" (config.showText) are BOTH true.
+      const shouldShowText = config.visible && config.showText;
+
       const widgetHTML = `
-        <div id="ai-chat-widget" style="position: fixed; bottom: 20px; right: 20px; z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-          <div id="chat-bubble" style="width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, #17876E 0%, #14a085 100%); color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 20px rgba(23, 135, 110, 0.4); transition: all 0.3s ease;">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-            </svg>
+        <div id="ai-chat-widget" style="position: fixed; bottom: ${bottom}; ${side}: ${sideValue}; z-index: 999999; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: ${isLeft ? 'flex-start' : 'flex-end'};">
+          
+          <div id="launcher-wrapper" style="
+              display: flex; 
+              align-items: center; 
+              gap: 12px; 
+              flex-direction: ${flexDirection};
+          ">
+            
+            <div style="position: relative;">
+               <div id="chat-bubble" style="width: ${sizePx}px; height: ${sizePx}px; border-radius: 50%; background: ${themeColor}; color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 20px rgba(0,0,0,0.2); transition: transform 0.3s ease; position: relative; z-index: 10;">
+                  ${rippleHtml}
+                  <img src="${avatarPath}" alt="Chat" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%; position: relative; z-index: 10;">
+                  ${dotHtml}
+               </div>
+            </div>
+
+            ${shouldShowText ? `
+              <div id="chat-widget-text" style="animation: fadeIn 0.5s ease;">
+                <div style="background: ${themeColor}; color: white; padding: 10px 18px; border-radius: 20px; font-size: 15px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.15); white-space: nowrap; cursor: pointer; position: relative;">
+                  ${config.text}
+                  <button onclick="this.parentElement.parentElement.remove()" style="position: absolute; top: -8px; right: -8px; background: white; border: 1px solid #eee; color: #999; border-radius: 50%; width: 20px; height: 20px; font-size: 14px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">×</button>
+                </div>
+              </div>
+            ` : ''}
+
           </div>
-          <div id="chat-window-container" style="display: none; position: absolute; bottom: 80px; right: 0;"></div>
+          
+          <div id="chat-window-container" style="display: none; position: absolute; bottom: ${sizePx + 15}px; ${side}: 0;"></div>
         </div>
       `;
 
       document.body.insertAdjacentHTML('beforeend', widgetHTML);
+
+      // Attach click to Avatar Bubble
       const bubble = document.getElementById('chat-bubble');
       if (bubble) bubble.addEventListener('click', () => this.handleBubbleClick());
+
+      // Attach click to Text Bubble (if exists)
+      const textBubble = document.getElementById('chat-widget-text');
+      if (textBubble) {
+        textBubble.addEventListener('click', (e) => {
+          // Prevent opening if the user clicked the close button
+          if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+          this.handleBubbleClick();
+        });
+      }
     }
 
     renderNudge(nudge) {
@@ -547,6 +777,8 @@
 
 
     handleBubbleClick() {
+      if (this.isLoading) return; // Prevent double clicks during init
+
       if (!this.isOpen) {
         this.isOpen = true;
         if (!this.isInitialized) this.initChat();
@@ -589,6 +821,9 @@
           // config set karo (colors, etc)
           this.config = data.data.config || this.config;
 
+          // Re-render chat bubble to reflect new config
+          this.renderChatBubble();
+
           // agar server ne new sessionId diya ho to save kar lo
           if (data.data.sessionId) {
             this.saveSession(data.data.sessionId, data.data.chatName);
@@ -614,6 +849,8 @@
 
 
     async initChat() {
+      if (this.isLoading) return;
+      this.isLoading = true;
       this.showLoading();
       try {
         const response = await fetchWithTimeout(
@@ -641,10 +878,16 @@
           this.saveSession(data.data.sessionId, data.data.chatName);
           this.config = data.data.config;
           this.isInitialized = true;
-          this.renderChatWindow();
+          this.renderChatBubble(); // Re-render bubble with new config
+          this.renderChatBubble(); // Re-render bubble with new config
 
-          if (data.data.conversation && data.data.conversation.length > 0) {
-            this.renderHistory(data.data.conversation);
+          if (data.data.isOffline) {
+            this.renderOfflineState(data.data.offlineMessage);
+          } else {
+            this.renderChatWindow();
+            if (data.data.conversation && data.data.conversation.length > 0) {
+              this.renderHistory(data.data.conversation);
+            }
           }
 
           if (data.data.nudge) {
@@ -656,6 +899,8 @@
       } catch (error) {
         console.error('Init Error:', error);
         this.showError('Connection error. Please try again.');
+      } finally {
+        this.isLoading = false;
       }
     }
 
@@ -691,9 +936,9 @@
       container.innerHTML = `
         <div style="width: 380px; padding: 40px 20px; background: white; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); text-align: center;">
           <div style="font-size: 40px; margin-bottom: 16px;">😕</div>
-          <div style="color: #e74c3c; font-weight: 500; margin-bottom: 8px;">Connection Error</div>
+          <div style="color: #e74c3c; font-weight: 500; margin-bottom: 8px;">${this.t('connectionError')}</div>
           <div style="color: #666; font-size: 13px;">${msg}</div>
-          <button onclick="location.reload()" style="margin-top: 16px; padding: 8px 20px; background: #17876E; color: white; border: none; border-radius: 6px; cursor: pointer;">Try Again</button>
+          <button onclick="location.reload()" style="margin-top: 16px; padding: 8px 20px; background: #17876E; color: white; border: none; border-radius: 6px; cursor: pointer;">${this.t('tryAgain')}</button>
         </div>
       `;
     }
@@ -703,10 +948,19 @@
       if (!container) return;
       const botName = (this.config?.assistantName || 'AI Assistant').toUpperCase();
 
-      // Suggestions from backend
-      const suggestions = Array.isArray(this.config?.suggestedQuestions)
-        ? this.config.suggestedQuestions
-        : [];
+      // Suggestions: Handle both legacy array and new structured object
+      let suggestions = [];
+
+      if (this.config?.conversationStarters?.home && Array.isArray(this.config.conversationStarters.home)) {
+        // New structure: Filter enabled items and extract labels
+        suggestions = this.config.conversationStarters.home
+          .filter(item => item.enabled)
+          .map(item => item.label);
+      } else if (Array.isArray(this.config?.suggestedQuestions)) {
+        // Fallback or legacy structure
+        suggestions = this.config.suggestedQuestions;
+      }
+
       let quickQuestionsHtml = '';
 
       if (suggestions.length) {
@@ -743,6 +997,8 @@
       const avatarPath = `${this.apiUrl.replace('/api/widget', '')}/loginassets/${avatarFileName}`;
       const themeColor = this.config?.interfaceColor || '#17876E';
 
+      const channelBtnHtml = this._getChannelButtonHtml();
+
       container.style.display = 'block';
       container.innerHTML = `
         <div style="width: 380px; height: 600px; background: white; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); display: flex; flex-direction: column; animation: slideUp 0.3s ease; overflow: hidden;">
@@ -752,27 +1008,31 @@
               <div>
                 <div style="font-weight: 600; font-size: 15px;">${botName}</div>
                 <div style="font-size: 11px; opacity: 0.9; display: flex; align-items: center; gap: 4px;">
-                  <span style="width:6px;height:6px;background:#4ade80;border-radius:50%;display:inline-block;"></span> Online
+                  <span style="width:6px;height:6px;background:#4ade80;border-radius:50%;display:inline-block;"></span> ${this.t('online')}
                 </div>
               </div>
             </div>
-            <button id="close-chat" style="background:rgba(255,255,255,0.15);border:none;width:32px;height:32px;border-radius:50%;color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">×</button>
+            <div style="display: flex; align-items: center;">
+              ${channelBtnHtml}
+              <button id="close-chat" style="background:rgba(255,255,255,0.15);border:none;width:32px;height:32px;border-radius:50%;color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">×</button>
+            </div>
           </div>
           <div id="chat-messages" style="flex: 1; padding: 16px; overflow-y: auto; background: #f8f9fa;">
             <div class="message" style="animation: fadeIn 0.3s ease; display: flex; justify-content: flex-start; margin-bottom: 12px;">
               <div style="background: white; padding: 14px 16px; border-radius: 4px 16px 16px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); max-width: 85%; border: 1px solid #eee;">
-                <div class="chat-msg-content">${this.formatMessage(this.config?.welcomeMessage || "Hi! I'm your AI assistant. How can I help you today?")}</div>
+                <div class="chat-msg-content">${this.formatMessage(this.config?.welcomeMessage || this.t('welcomeDefault'))}</div>
               </div>
             </div>
             ${quickQuestionsHtml}
           </div>
           <div id="typing-placeholder" style="padding: 0 16px; background: #f8f9fa;"></div>
           <div style="padding: 12px 16px; border-top: 1px solid #eee; display: flex; gap: 10px; background: white;">
-            <input id="chat-input" type="text" placeholder="Type your message..." style="flex:1; padding:12px 16px; border:1px solid #e0e0e0; border-radius:24px; outline:none; font-size:14px; transition:border-color 0.2s, box-shadow 0.2s;" onfocus="this.style.borderColor='${themeColor}';this.style.boxShadow='0 0 0 3px ${themeColor}22'" onblur="this.style.borderColor='#e0e0e0';this.style.boxShadow='none'" />
-            <button id="send-btn" style="padding:12px 18px; background:${themeColor}; color:white; border:none; border-radius:24px; cursor:pointer; font-weight:600; font-size:14px; transition:opacity 0.2s, transform 0.1s;" onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">Send</button>
+            <input id="chat-input" type="text" placeholder="${this.t('typeMessage')}" style="flex:1; padding:12px 16px; border:1px solid #e0e0e0; border-radius:24px; outline:none; font-size:14px; transition:border-color 0.2s, box-shadow 0.2s;" onfocus="this.style.borderColor='${themeColor}';this.style.boxShadow='0 0 0 3px ${themeColor}22'" onblur="this.style.borderColor='#e0e0e0';this.style.boxShadow='none'" />
+            <button id="send-btn" style="padding:12px 18px; background:${themeColor}; color:white; border:none; border-radius:24px; cursor:pointer; font-weight:600; font-size:14px; transition:opacity 0.2s, transform 0.1s;" onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">${this.t('send')}</button>
           </div>
         </div>
       `;
+
 
       document.getElementById('close-chat').onclick = () => {
         this.isOpen = false;
@@ -871,7 +1131,7 @@
               <span></span>
               <span></span>
             </div>
-            <span style="font-size:12px; color:#888;">Typing...</span>
+            <span style="font-size:12px; color:#888;">${this.t('typing')}</span>
           </div>
         `;
       }
@@ -929,6 +1189,13 @@
 
         const data = await response.json();
         if (data.success) {
+          // Check if handover action triggered
+          if (data.data.action === 'handover') {
+            this.appendMessageToUI('bot', data.data.message || "I'm connecting you to an agent.");
+            this.renderHandoverOptions(data.data.handoverData);
+            return; // Stop processing further
+          }
+
           // Check if products are included in response
           const botMessage = data.data.message;
           const products = data.data.products || [];
@@ -945,11 +1212,11 @@
             this.saveSession(data.data.sessionId, data.data.chatName || this.chatName);
           }
         } else {
-          this.appendMessageToUI('bot', data.message || 'Sorry, I encountered an error. Please try again.');
+          this.appendMessageToUI('bot', data.message || this.t('genericError'));
         }
       } catch (error) {
         console.error(error);
-        this.appendMessageToUI('bot', 'Connection error. Please check your internet and try again.');
+        this.appendMessageToUI('bot', this.t('connectionErrorMsg'));
       } finally {
         this.hideTypingIndicator();
       }
@@ -973,6 +1240,95 @@
       this.appendMessageToUI('user', question);
       this.showTypingIndicator();
       await this._sendToServer(question);
+    }
+    // Render Offline State
+    renderOfflineState(message) {
+      const container = document.getElementById('chat-window-container');
+      if (!container) return;
+      const themeColor = this.config?.interfaceColor || '#17876E';
+      const botName = (this.config?.assistantName || 'AI Assistant').toUpperCase();
+      const channelBtnHtml = this._getChannelButtonHtml();
+
+      container.style.display = 'block';
+      container.innerHTML = `
+        <div style="width: 380px; height: auto; min-height: 300px; background: white; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); display: flex; flex-direction: column; overflow: hidden; animation: slideUp 0.3s ease;">
+          <!-- Header -->
+          <div style="padding: 14px 16px; background: linear-gradient(135deg, ${themeColor} 0%, ${this.adjustColor(themeColor, 15)} 100%); color: white; display: flex; justify-content: space-between; align-items: center;">
+             <div style="font-weight: 600; font-size: 15px;">${botName}</div>
+             <button id="close-chat" style="background:rgba(255,255,255,0.15);border:none;width:32px;height:32px;border-radius:50%;color:white;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;">×</button>
+          </div>
+
+          <!-- Offline Content -->
+          <div style="padding: 30px 20px; text-align: center; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+             <div style="font-size: 40px; margin-bottom: 15px;">😴</div>
+             <div style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 8px;">We are currently offline</div>
+             <div style="font-size: 14px; color: #666; margin-bottom: 20px; line-height: 1.5;">${message}</div>
+             
+             <!-- Alternative Channels -->
+             <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+                ${this.renderSupportButtons()}
+             </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('close-chat').onclick = () => {
+        this.isOpen = false;
+        this.hideChatWindow();
+      };
+    }
+
+    // Helper to render support buttons
+    renderSupportButtons() {
+      const contact = this.config?.supportContact || {};
+      let buttons = '';
+
+      if (contact.whatsapp) {
+        const num = (contact.whatsappCode || '') + contact.whatsapp;
+        const href = `https://wa.me/${num.replace(/\+/g, '')}`;
+        buttons += `<a href="${href}" target="_blank" style="display:flex; flex-direction:column; align-items:center; gap:5px; text-decoration:none; color:#333; font-size:12px;">
+                <div style="width:40px; height:40px; background:#25D366; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white;"><svg width="20" height="20" fill="currentColor" viewBox="0 0 448 512"><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"></path></svg></div>
+                <span>WhatsApp</span>
+            </a>`;
+      }
+
+      if (contact.email) {
+        buttons += `<a href="mailto:${contact.email}" style="display:flex; flex-direction:column; align-items:center; gap:5px; text-decoration:none; color:#333; font-size:12px;">
+                <div style="width:40px; height:40px; background:#EA4335; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white;"><svg width="20" height="20" fill="currentColor" viewBox="0 0 512 512"><path d="M502.3 190.8c3.9-3.1 9.7-.2 9.7 4.7V400c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V195.6c0-5 5.7-7.8 9.7-4.7 22.4 17.4 52.1 39.5 154.1 113.6 21.1 15.4 56.7 47.8 92.2 47.6 35.7.3 72-32.8 92.3-47.6 102-74.1 131.6-96.3 154-113.7zM256 320c23.2.4 56.6-29.2 73.4-41.4 132.7-96.3 142.8-104.7 173.4-128.7 5.8-4.5 9.2-11.5 9.2-18.9v-19c0-26.5-21.5-48-48-48H48C21.5 64 0 85.5 0 112v19c0 7.4 3.4 14.3 9.2 18.9 30.6 23.9 40.7 32.4 173.4 128.7 16.8 12.2 50.2 41.8 73.4 41.4z"></path></svg></div>
+                <span>Email</span>
+            </a>`;
+      }
+
+      if (contact.phone) {
+        const num = (contact.phoneCode || '') + contact.phone;
+        buttons += `<a href="tel:${num}" style="display:flex; flex-direction:column; align-items:center; gap:5px; text-decoration:none; color:#333; font-size:12px;">
+                <div style="width:40px; height:40px; background:#4285F4; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white;"><svg width="20" height="20" fill="currentColor" viewBox="0 0 512 512"><path d="M493.4 24.6l-104-24c-11.3-2.6-22.9 3.3-27.5 13.9l-48 112c-4.2 9.8-1.4 21.3 6.9 27.4l50 37.4c-28.9 50.6-69.6 91.3-120.2 120.2l-37.4-50c-6.1-8.3-17.6-11.1-27.4-6.9l-112 48C6.2 307.7.3 319.3 2.9 330.6l24 104C29.6 445.8 40.9 455 54.4 455c2.3 0 4.6-.3 6.9-.7 1.1-.2 2.1-.3 3.2-.3 234.3 0 425.6-191.3 425.6-425.6 0-1.2 0-2.3 0-3.5 0-13.6-9.1-25-22.7-27.4-1.2-5.5-2.3-10.9-3.4-16.4z"></path></svg></div>
+                <span>Call</span>
+            </a>`;
+      }
+
+      return buttons || '<div style="font-size:13px; color:#999;">No contact options available</div>';
+    }
+
+    // Render Handover Options
+    renderHandoverOptions(handoverData) {
+      const messagesDiv = document.getElementById('chat-messages');
+      if (!messagesDiv) return;
+
+      const div = document.createElement('div');
+      div.style.cssText = `animation: fadeIn 0.3s ease; margin-bottom: 20px; display: flex; justify-content: flex-start;`;
+
+      div.innerHTML = `
+          <div style="background: white; padding: 16px; border-radius: 4px 16px 16px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid #eee; width: 85%;">
+             <div style="font-size: 13px; font-weight: 600; color: #333; margin-bottom: 12px;">Contact us directly:</div>
+             <div style="display: flex; gap: 15px; justify-content: center;">
+                ${this.renderSupportButtons()}
+             </div>
+          </div>
+        `;
+
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
   }
 
