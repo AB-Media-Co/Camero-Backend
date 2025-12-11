@@ -1269,6 +1269,13 @@
             return; // Stop processing further
           }
 
+          // ⭐ NEW: Check if lead_capture action triggered
+          if (data.data.action === 'lead_capture') {
+            this.appendMessageToUI('bot', data.data.message || "Please share your details.");
+            this.renderLeadCaptureForm(data.data.leadData);
+            return;
+          }
+
           // Check if products are included in response
           const botMessage = data.data.message;
           const products = data.data.products || [];
@@ -1421,6 +1428,89 @@
       messagesDiv.appendChild(div);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
+
+    // ⭐ NEW: Render Lead Capture Form
+    renderLeadCaptureForm(leadData) {
+      const messagesDiv = document.getElementById('chat-messages');
+      if (!messagesDiv) return;
+
+      const { type = 'email', mandatory = false } = leadData || {};
+      const inputType = type === 'phone' ? 'tel' : 'email';
+      const placeholder = type === 'phone' ? 'Phone Number (+1...)' : 'Email Address';
+      const themeColor = this.config?.interfaceColor || '#17876E';
+
+      const div = document.createElement('div');
+      div.style.cssText = `animation: fadeIn 0.3s ease; margin-bottom: 20px; display: flex; justify-content: flex-start; width: 100%;`;
+
+      const formId = `lead-form-${Date.now()}`;
+
+      div.innerHTML = `
+          <div style="background: white; padding: 16px; border-radius: 4px 16px 16px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid #eee; width: 85%;">
+             <div style="font-size: 13px; font-weight: 600; color: #333; margin-bottom: 8px;">
+               ${mandatory ? 'Information Required' : 'Stay Connected'}
+             </div>
+             <div style="font-size: 12px; color: #666; margin-bottom: 12px;">
+               Please provide your ${type} to continue the conversation.
+             </div>
+             
+             <form id="${formId}" onsubmit="event.preventDefault(); window.CameroAI.widget.submitLeadForm('${formId}', '${type}');">
+               <input type="${inputType}" name="contact" placeholder="${placeholder}" required
+                 style="width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; margin-bottom: 8px; outline: none; transition: border 0.2s;"
+                 onfocus="this.style.borderColor='${themeColor}'" onblur="this.style.borderColor='#ddd'"
+               />
+               <button type="submit" style="width: 100%; background: ${themeColor}; color: white; border: none; padding: 8px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;">
+                 Submit
+               </button>
+               ${!mandatory ? `<button type="button" onclick="this.closest('div').parentElement.remove()" style="width: 100%; background: transparent; color: #999; border: none; padding: 6px; margin-top: 4px; font-size: 11px; cursor: pointer;">Skip</button>` : ''}
+             </form>
+          </div>
+        `;
+
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    async submitLeadForm(formId, type) {
+      const form = document.getElementById(formId);
+      if (!form) return;
+      const input = form.querySelector('input[name="contact"]');
+      const value = input.value.trim();
+
+      if (!value) return;
+
+      const btn = form.querySelector('button[type="submit"]');
+      const originalText = btn.innerText;
+      btn.innerText = 'Sending...';
+      btn.disabled = true;
+
+      try {
+        const body = { sessionId: this.sessionId };
+        if (type === 'phone') body.phone = value;
+        else body.email = value;
+
+        const response = await fetch(`${this.apiUrl}/lead`, {
+          method: 'POST',
+          headers: this._buildHeaders(),
+          body: JSON.stringify(body)
+        });
+
+        if (response.ok) {
+          // Replace form with success message
+          form.parentElement.innerHTML = `
+             <div style="text-align: center; color: #22c55e; font-size: 13px; padding: 10px 0;">
+               ✓ Thanks! We'll allow you to continue.
+             </div>
+           `;
+        } else {
+          btn.innerText = 'Failed. Try again.';
+          btn.disabled = false;
+        }
+      } catch (e) {
+        console.error('Lead submit error', e);
+        btn.innerText = originalText;
+        btn.disabled = false;
+      }
+    }
   }
 
   window.CameroAI = window.CameroAI || {};
@@ -1428,6 +1518,13 @@
   window.initAIChatWidget = function (config) {
     if (!config?.apiKey) return console.error('API key required');
     window.CameroAI.widget = new ChatWidget(config);
+  };
+
+  // ⭐ NEW: Expose submitLeadForm helper for inline form usage
+  window.CameroAI.submitLeadForm = function (formId, type) {
+    if (window.CameroAI.widget) {
+      window.CameroAI.widget.submitLeadForm(formId, type);
+    }
   };
 
   window.CameroAI.trackConversion = function (type, data) {

@@ -9,7 +9,8 @@ import {
     getConversationById,
     markChatsAsSeen,
     getSeenChats,
-    trackConversion // <-- import new controller
+    trackConversion, // <-- import new controller
+    submitLead
 } from '../controllers/chatWidgetController.js';
 import { rateLimitMiddleware } from '../middleware/rateLimit.js';
 import { protect } from '../middleware/auth.js';
@@ -21,6 +22,7 @@ router.get('/check-customer', rateLimitMiddleware, checkCustomer);
 router.post('/init', rateLimitMiddleware, initChatSession);
 router.post('/chat', rateLimitMiddleware, sendMessage);
 router.post('/conversion', rateLimitMiddleware, trackConversion); // <-- NEW
+router.post('/lead', rateLimitMiddleware, submitLead);
 
 router.get('/all', protect, getAllConversations);
 

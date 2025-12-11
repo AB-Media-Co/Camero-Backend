@@ -560,6 +560,43 @@ export const sendMessage = async (req, res) => {
         message: message,
         last_message_at: new Date()
       });
+
+      // ⭐ Auto-Capture Lead Details (Email/Phone) if present in message
+      try {
+        const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+        const phoneRegex = /(?:\+?\d{1,3}[- ]?)?\d{10}/; // Simple 10-digit capture
+
+        const emailMatch = message.match(emailRegex);
+        const phoneMatch = message.match(phoneRegex);
+
+        let updatedLead = false;
+
+        if (emailMatch && !conversationDoc.customerEmail) {
+          conversationDoc.customerEmail = emailMatch[0];
+          updatedLead = true;
+          console.log('📧 Captured Email:', emailMatch[0]);
+        }
+
+        if (phoneMatch && !conversationDoc.customerPhone) {
+          // Extra validation length check if needed
+          conversationDoc.customerPhone = phoneMatch[0];
+          updatedLead = true;
+          console.log('📱 Captured Phone:', phoneMatch[0]);
+        }
+
+        if (updatedLead) {
+          conversationDoc.conversions.push({
+            type: 'lead',
+            value: 0,
+            metadata: { source: 'chat_capture', email: conversationDoc.customerEmail, phone: conversationDoc.customerPhone },
+            timestamp: new Date()
+          });
+          conversationDoc.hasConversion = true;
+        }
+      } catch (err) {
+        console.error('Error capturing lead info:', err);
+      }
+
       await conversationDoc.save();
       console.log('✅ User message saved to DB');
       conversationHistory = conversationDoc.conversation;
@@ -631,38 +668,32 @@ export const sendMessage = async (req, res) => {
 
     // ⭐ NEW: Fetch FRESH AssistantConfig
     // The apiKey.user object might have stale embedded config. We need the latest from the standalone collection.
-    const freshConfig = await AssistantConfig.findOne({ user: apiKey.user._id, isActive: true });
+    const freshConfigDoc = await AssistantConfig.findOne({ user: apiKey.user._id });
+    const freshConfig = freshConfigDoc ? freshConfigDoc.toObject() : {};
 
-    // Merge fresh config into user object for buildSystemPrompt
-    if (freshConfig) {
-      apiKey.user.assistantConfig = {
-        ...apiKey.user.assistantConfig,
-        ...freshConfig.toObject()
-      };
-    }
+    // ⚡ FIX: apiKey.user is a Mongoose doc, so assigning unknown fields to .assistantConfig fails (Schema Strict Mode).
+    // We must convert to POJO.
+    const userForAI = apiKey.user.toObject();
+    userForAI.assistantConfig = {
+      ...(userForAI.assistantConfig || {}),
+      ...freshConfig
+    };
 
     // ⭐ NEW: Check Handover Intent BEFORE AI processing
-    // Only check if we have a config and it's not playground
-    if (!isPlayground && apiKey.user.assistantConfig) {
-      const handoverCheck = checkHandoverIntent(message, apiKey.user.assistantConfig);
+    const deepConfig = userForAI.assistantConfig; // Shortcut
+
+    if (!isPlayground && deepConfig) {
+      const handoverCheck = checkHandoverIntent(message, deepConfig);
       if (handoverCheck.shouldHandover) {
         console.log('⚡ Handover Triggered. Flows:', handoverCheck.flows);
 
-        // If handover summary is enabled, we DO NOT return immediately.
-        // We let the AI generate a summary first, but we attach a system instruction to force it.
-        // However, the Widget needs to know "Action: Handover" to show buttons.
-
-        // STRATEGY:
-        // 1. If summary enabled: Ask AI to summarize, then Frontend sees "Handover" action + Message.
-        // 2. If summary disabled: Return hardcoded message + Handover Action immediately.
-
-        const summaryEnabled = apiKey.user.assistantConfig.handoverSummaryEnabled ?? true;
+        const summaryEnabled = deepConfig.handoverSummaryEnabled ?? true;
 
         if (!summaryEnabled) {
           return res.status(200).json({
             success: true,
             data: {
-              message: apiKey.user.assistantConfig.handoverOfflineMessage || "Connecting you to an agent...",
+              message: deepConfig.handoverOfflineMessage || "Connecting you to an agent...",
               action: 'handover',
               handoverData: handoverCheck.flows,
               sessionId: conversationDoc?.sessionId || sessionId,
@@ -671,40 +702,53 @@ export const sendMessage = async (req, res) => {
           });
         }
 
-        // If summary enabled, we add a flag to the prompt or rely on the system prompt instruction we added earlier.
-        // But we need to tell the frontend to show buttons AFTER this message.
-        // So we will process AI response, then attach action='handover' to the FINAL response.
         req.handoverTriggered = true;
         req.handoverFlows = handoverCheck.flows;
       }
     }
 
-    const systemPrompt = buildSystemPrompt(apiKey.user, knowledge, ragContextText + pastContext);
+    const systemPrompt = buildSystemPrompt(userForAI, knowledge, ragContextText + pastContext);
 
     // Build conversation history for AI context
     let conversationForAI = [];
     if (isPlayground) {
-      // For playground, just use current message (no history saved)
       conversationForAI = [
         { role: 'user', message: message }
       ];
     } else {
-      // For regular chats, use saved conversation history
       conversationForAI = conversationHistory;
     }
 
     // ⭐ NEW: Lead Generation Trigger
     let leadGenInstruction = '';
-    const leadConfig = apiKey.user.assistantConfig;
-    if (leadConfig?.leadAskOnConversationStart && !isPlayground) {
-      const userMsgCount = conversationHistory.filter(m => m.role === 'user').length + 1; // +1 for current
-      const askAt = leadConfig.leadAskAfterMessages || 5;
 
-      if (userMsgCount === askAt) {
-        const type = leadConfig.leadCollectionType || 'email'; // email or phone
-        const mandatory = leadConfig.leadCollectionMandatory ? "mandatorily" : "politely";
-        leadGenInstruction = `\n\nSYSTEM ALERT: This is the ${userMsgCount}th message. You must now ${mandatory} ask the user for their ${type} to stay connected. Do not block the conversation, but make sure to ask.`;
-        console.log('⚡ Lead Gen Triggered at message', userMsgCount);
+    // Debug Log for Lead Gen
+    const currentMsgCount = conversationHistory.filter(m => m.role === 'user').length;
+    console.log('🔍 Lead Gen Check:', {
+      enabled: deepConfig?.leadAskOnConversationStart,
+      askAt: deepConfig?.leadAskAfterMessages,
+      currentCount: currentMsgCount,
+      isPlayground
+    });
+
+    if (deepConfig?.leadAskOnConversationStart && !isPlayground) {
+      const askAt = deepConfig.leadAskAfterMessages || 5;
+
+      if (currentMsgCount === askAt) {
+        const type = deepConfig.leadCollectionType || 'email'; // email or phone
+        const mandatory = deepConfig.leadCollectionMandatory ? "mandatorily" : "politely";
+
+        // Stronger Prompt
+        leadGenInstruction = `\n\n⚠️ SYSTEM OVERRIDE: This is the ${currentMsgCount}th message. Conversion Goal Reached.
+        \nYOUR PRIORITY IS NOW TO ASK FOR THE USER'S ${type.toUpperCase()}.
+        \nContext: We need to capture their ${type} to stay connected.
+        \nInstruction: "Before answering the user's latest query, or immediately after, you MUST ask for their ${type} ${mandatory}."`;
+
+        console.log('⚡ Lead Gen Triggered at message', currentMsgCount);
+
+        req.leadGenTriggered = true;
+        req.leadGenType = type;
+        req.leadGenMandatory = deepConfig.leadCollectionMandatory;
       }
     }
 
@@ -721,7 +765,7 @@ export const sendMessage = async (req, res) => {
 
     // ⭐ Model Selection Logic
     let modelName = 'gpt-3.5-turbo'; // Default
-    const savedModel = apiKey.user?.assistantConfig?.aiModel || 'lite';
+    const savedModel = deepConfig?.aiModel || 'lite';
 
     if (savedModel === 'pro') modelName = 'gpt-4-turbo';
     if (savedModel === 'ultra') modelName = 'gpt-4o';
@@ -797,9 +841,10 @@ export const sendMessage = async (req, res) => {
         sessionId: conversationDoc?.sessionId || sessionId,
         chatName: conversationDoc?.chatName || 'Playground Chat',
         products: productsToShow,
-        // Trigger handover if flagged
-        action: req.handoverTriggered ? 'handover' : undefined,
-        handoverData: req.handoverTriggered ? req.handoverFlows : undefined
+        // Trigger handover if flagged, OR lead capture if flagged
+        action: req.handoverTriggered ? 'handover' : (req.leadGenTriggered ? 'lead_capture' : undefined),
+        handoverData: req.handoverTriggered ? req.handoverFlows : undefined,
+        leadData: req.leadGenTriggered ? { type: req.leadGenType, mandatory: req.leadGenMandatory } : undefined
       }
     });
 
