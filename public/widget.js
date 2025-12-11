@@ -948,17 +948,69 @@
       if (!container) return;
       const botName = (this.config?.assistantName || 'AI Assistant').toUpperCase();
 
+      // Determine Page Type
+      const path = window.location.pathname;
+      let pageType = 'home';
+
+      if (path.includes('/products/')) pageType = 'product';
+      else if (path.includes('/collections/')) pageType = 'collection';
+      else if (path.includes('/search')) pageType = 'search';
+      else if (path === '/' || path === '') pageType = 'home';
+      else pageType = 'other';
+
       // Suggestions: Handle both legacy array and new structured object
       let suggestions = [];
 
-      if (this.config?.conversationStarters?.home && Array.isArray(this.config.conversationStarters.home)) {
-        // New structure: Filter enabled items and extract labels
+      // Try to get page-specific questions, fallback to home
+      if (this.config?.conversationStarters?.[pageType] && Array.isArray(this.config.conversationStarters[pageType])) {
+        suggestions = this.config.conversationStarters[pageType]
+          .filter(item => item.enabled)
+          .map(item => item.label);
+      } else if (this.config?.conversationStarters?.home && Array.isArray(this.config.conversationStarters.home)) {
         suggestions = this.config.conversationStarters.home
           .filter(item => item.enabled)
           .map(item => item.label);
       } else if (Array.isArray(this.config?.suggestedQuestions)) {
         // Fallback or legacy structure
         suggestions = this.config.suggestedQuestions;
+      }
+
+      let quickActionsHtml = '';
+      // Try to get page-specific actions, fallback to home
+      let quickActionsList = this.config?.quickActions?.[pageType] || [];
+
+      // If no specific actions found (empty array) and page is NOT home, try falling back to home actions
+      if ((!quickActionsList || quickActionsList.length === 0) && pageType !== 'home') {
+        quickActionsList = this.config?.quickActions?.home || [];
+      }
+
+      const quickActionsVisible = this.config?.quickActionsVisible !== false; // Default true if undefined
+
+      if (quickActionsVisible && Array.isArray(quickActionsList)) {
+        const enabledActions = quickActionsList.filter(qa => qa.enabled);
+        if (enabledActions.length > 0) {
+          const actionsButtonsHtml = enabledActions.map(qa => {
+            const safeLabel = qa.label.replace(/"/g, '&quot;');
+            return `
+               <div class="quick-action-chip" 
+                    data-action="${safeLabel}"
+                    style="background:${themeColor}; color:white; font-size:11px; padding:6px 12px; border-radius:12px; cursor:pointer; user-select:none; display:flex; align-items:center; box-shadow:0 2px 4px rgba(0,0,0,0.1); transition:transform 0.1s; margin-bottom: 6px;">
+                 ${safeLabel}
+               </div>
+             `;
+          }).join('');
+
+          const actionsTitle = this.config?.quickActionsDisplayName ?
+            `<div style="font-size:11px; color:#888; margin-bottom:6px; font-weight:500; width:100%;">${this.config.quickActionsDisplayName}</div>`
+            : '';
+
+          quickActionsHtml = `
+             <div id="quick-actions" style="margin-top:8px; padding: 0 4px; display:flex; flex-wrap:wrap; gap:6px;">
+               ${actionsTitle}
+               ${actionsButtonsHtml}
+             </div>
+           `;
+        }
       }
 
       let quickQuestionsHtml = '';
@@ -970,15 +1022,15 @@
             return `
               <button class="quick-question-btn"
                       data-question="${safeQ}"
-                      style="display:block;width:100%;text-align:left;margin:4px 0;padding:10px 12px;border-radius:8px;border:1px solid #e5e7eb;background:#fff;font-size:13px;cursor:pointer;transition:all 0.2s;color:#333;">
+                      style="display:block;width:fit-content;text-align:left;margin:4px 0;padding:8px 14px;border-radius:20px;border:1px solid #e5e7eb;background:#fff;font-size:13px;cursor:pointer;transition:all 0.2s;color:#555;box-shadow:0 1px 2px rgba(0,0,0,0.05);">
                 ${safeQ}
               </button>`;
           })
           .join('');
 
         quickQuestionsHtml = `
-          <div id="quick-questions" style="margin-top:12px; padding: 0 4px;">
-            <div style="font-size:12px; color:#888; margin-bottom:8px; font-weight:500;">💡 Quick Questions</div>
+          <div id="quick-questions" style="margin-top:12px; padding: 0 4px; display:flex; flex-direction:column; align-items:flex-start;">
+            <div style="font-size:12px; color:#888; margin-bottom:4px; font-weight:500; width:100%;">💡 Quick Questions</div>
             ${buttonsHtml}
           </div>
         `;
@@ -1023,6 +1075,7 @@
                 <div class="chat-msg-content">${this.formatMessage(this.config?.welcomeMessage || this.t('welcomeDefault'))}</div>
               </div>
             </div>
+            ${quickActionsHtml}
             ${quickQuestionsHtml}
           </div>
           <div id="typing-placeholder" style="padding: 0 16px; background: #f8f9fa;"></div>
@@ -1051,12 +1104,32 @@
           this.sendQuickQuestion(q);
         });
         btn.addEventListener('mouseover', () => {
-          btn.style.background = '#f0f0f0';
-          btn.style.borderColor = '#17876E';
+          btn.style.background = '#f9fafb';
+          btn.style.borderColor = themeColor;
+          btn.style.color = themeColor;
         });
         btn.addEventListener('mouseout', () => {
           btn.style.background = '#fff';
           btn.style.borderColor = '#e5e7eb';
+          btn.style.color = '#555';
+        });
+      });
+
+      // Attach Quick Action listeners
+      const actionChips = container.querySelectorAll('.quick-action-chip');
+      actionChips.forEach(chip => {
+        chip.addEventListener('click', () => {
+          const actionLabel = chip.getAttribute('data-action');
+          this.sendQuickQuestion(actionLabel);
+        });
+        chip.addEventListener('mousedown', () => {
+          chip.style.transform = 'scale(0.95)';
+        });
+        chip.addEventListener('mouseup', () => {
+          chip.style.transform = 'scale(1)';
+        });
+        chip.addEventListener('mouseleave', () => {
+          chip.style.transform = 'scale(1)';
         });
       });
     }
@@ -1279,35 +1352,53 @@
     }
 
     // Helper to render support buttons
-    renderSupportButtons() {
+    renderSupportButtons(allowedFlows = null) {
       const contact = this.config?.supportContact || {};
+      const supportRequest = this.config?.supportRequest || {};
       let buttons = '';
 
-      if (contact.whatsapp) {
+      // If allowedFlows is provided, use it to filter. Otherwise render ALL available contact options (offline fallback).
+      // Note: Backend 'allowedFlows' are IDs like 'email', 'whatsapp', 'phone', 'supportRequest'.
+
+      const shouldRender = (type) => {
+        if (!allowedFlows) return true; // Render all if no filter
+        if (Array.isArray(allowedFlows)) return allowedFlows.includes(type);
+        return allowedFlows === type;
+      };
+
+      if (shouldRender('whatsapp') && contact.whatsapp) {
         const num = (contact.whatsappCode || '') + contact.whatsapp;
         const href = `https://wa.me/${num.replace(/\+/g, '')}`;
         buttons += `<a href="${href}" target="_blank" style="display:flex; flex-direction:column; align-items:center; gap:5px; text-decoration:none; color:#333; font-size:12px;">
-                <div style="width:40px; height:40px; background:#25D366; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white;"><svg width="20" height="20" fill="currentColor" viewBox="0 0 448 512"><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"></path></svg></div>
+                <div style="width:40px; height:40px; background:#25D366; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'"><svg width="20" height="20" fill="currentColor" viewBox="0 0 448 512"><path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7.9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"></path></svg></div>
                 <span>WhatsApp</span>
             </a>`;
       }
 
-      if (contact.email) {
+      if (shouldRender('email') && contact.email) {
         buttons += `<a href="mailto:${contact.email}" style="display:flex; flex-direction:column; align-items:center; gap:5px; text-decoration:none; color:#333; font-size:12px;">
-                <div style="width:40px; height:40px; background:#EA4335; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white;"><svg width="20" height="20" fill="currentColor" viewBox="0 0 512 512"><path d="M502.3 190.8c3.9-3.1 9.7-.2 9.7 4.7V400c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V195.6c0-5 5.7-7.8 9.7-4.7 22.4 17.4 52.1 39.5 154.1 113.6 21.1 15.4 56.7 47.8 92.2 47.6 35.7.3 72-32.8 92.3-47.6 102-74.1 131.6-96.3 154-113.7zM256 320c23.2.4 56.6-29.2 73.4-41.4 132.7-96.3 142.8-104.7 173.4-128.7 5.8-4.5 9.2-11.5 9.2-18.9v-19c0-26.5-21.5-48-48-48H48C21.5 64 0 85.5 0 112v19c0 7.4 3.4 14.3 9.2 18.9 30.6 23.9 40.7 32.4 173.4 128.7 16.8 12.2 50.2 41.8 73.4 41.4z"></path></svg></div>
+                <div style="width:40px; height:40px; background:#EA4335; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'"><svg width="20" height="20" fill="currentColor" viewBox="0 0 512 512"><path d="M502.3 190.8c3.9-3.1 9.7-.2 9.7 4.7V400c0 26.5-21.5 48-48 48H48c-26.5 0-48-21.5-48-48V195.6c0-5 5.7-7.8 9.7-4.7 22.4 17.4 52.1 39.5 154.1 113.6 21.1 15.4 56.7 47.8 92.2 47.6 35.7.3 72-32.8 92.3-47.6 102-74.1 131.6-96.3 154-113.7zM256 320c23.2.4 56.6-29.2 73.4-41.4 132.7-96.3 142.8-104.7 173.4-128.7 5.8-4.5 9.2-11.5 9.2-18.9v-19c0-26.5-21.5-48-48-48H48C21.5 64 0 85.5 0 112v19c0 7.4 3.4 14.3 9.2 18.9 30.6 23.9 40.7 32.4 173.4 128.7 16.8 12.2 50.2 41.8 73.4 41.4z"></path></svg></div>
                 <span>Email</span>
             </a>`;
       }
 
-      if (contact.phone) {
+      if (shouldRender('phone') && contact.phone) {
         const num = (contact.phoneCode || '') + contact.phone;
         buttons += `<a href="tel:${num}" style="display:flex; flex-direction:column; align-items:center; gap:5px; text-decoration:none; color:#333; font-size:12px;">
-                <div style="width:40px; height:40px; background:#4285F4; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white;"><svg width="20" height="20" fill="currentColor" viewBox="0 0 512 512"><path d="M493.4 24.6l-104-24c-11.3-2.6-22.9 3.3-27.5 13.9l-48 112c-4.2 9.8-1.4 21.3 6.9 27.4l50 37.4c-28.9 50.6-69.6 91.3-120.2 120.2l-37.4-50c-6.1-8.3-17.6-11.1-27.4-6.9l-112 48C6.2 307.7.3 319.3 2.9 330.6l24 104C29.6 445.8 40.9 455 54.4 455c2.3 0 4.6-.3 6.9-.7 1.1-.2 2.1-.3 3.2-.3 234.3 0 425.6-191.3 425.6-425.6 0-1.2 0-2.3 0-3.5 0-13.6-9.1-25-22.7-27.4-1.2-5.5-2.3-10.9-3.4-16.4z"></path></svg></div>
+                <div style="width:40px; height:40px; background:#4285F4; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'"><svg width="20" height="20" fill="currentColor" viewBox="0 0 512 512"><path d="M493.4 24.6l-104-24c-11.3-2.6-22.9 3.3-27.5 13.9l-48 112c-4.2 9.8-1.4 21.3 6.9 27.4l50 37.4c-28.9 50.6-69.6 91.3-120.2 120.2l-37.4-50c-6.1-8.3-17.6-11.1-27.4-6.9l-112 48C6.2 307.7.3 319.3 2.9 330.6l24 104C29.6 445.8 40.9 455 54.4 455c2.3 0 4.6-.3 6.9-.7 1.1-.2 2.1-.3 3.2-.3 234.3 0 425.6-191.3 425.6-425.6 0-1.2 0-2.3 0-3.5 0-13.6-9.1-25-22.7-27.4-1.2-5.5-2.3-10.9-3.4-16.4z"></path></svg></div>
                 <span>Call</span>
             </a>`;
       }
 
-      return buttons || '<div style="font-size:13px; color:#999;">No contact options available</div>';
+      // Add Support Request if enabled
+      if (shouldRender('supportRequest') && supportRequest.email) {
+        buttons += `<a href="mailto:${supportRequest.email}?subject=Support Request" style="display:flex; flex-direction:column; align-items:center; gap:5px; text-decoration:none; color:#333; font-size:12px;">
+                <div style="width:40px; height:40px; background:#8e44ad; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'"><svg width="20" height="20" fill="currentColor" viewBox="0 0 512 512"><path d="M256 512c141.4 0 256-114.6 256-256S397.4 0 256 0 0 114.6 0 256s114.6 256 256 256zM216 336h24V272h-24c-13.3 0-24-10.7-24-24s10.7-24 24-24h48c13.3 0 24 10.7 24 24v88h8c13.3 0 24 10.7 24 24s-10.7 24-24 24h-80c-13.3 0-24-10.7-24-24s10.7-24 24-24zm40-208a32 32 0 1 1 0 64 32 32 0 1 1 0-64z"></path></svg></div>
+                <span>Ticket</span>
+            </a>`;
+      }
+
+      return buttons || '<div style="font-size:13px; color:#999; width:100%; text-align:center;">No options available</div>';
     }
 
     // Render Handover Options
@@ -1321,8 +1412,8 @@
       div.innerHTML = `
           <div style="background: white; padding: 16px; border-radius: 4px 16px 16px 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border: 1px solid #eee; width: 85%;">
              <div style="font-size: 13px; font-weight: 600; color: #333; margin-bottom: 12px;">Contact us directly:</div>
-             <div style="display: flex; gap: 15px; justify-content: center;">
-                ${this.renderSupportButtons()}
+             <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                ${this.renderSupportButtons(handoverData)}
              </div>
           </div>
         `;

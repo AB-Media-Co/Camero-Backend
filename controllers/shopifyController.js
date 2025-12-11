@@ -10,8 +10,7 @@ import UserActivity from '../models/UserActivity.js';
 import { ROLES, PLAN_STATUS } from '../utils/constants.js';
 import ChatConversation from '../models/ChatConversation.js';
 
-// Verify OAuth query HMAC (safe compare)
-// keeps existing query-based verification but uses timingSafeEqual
+// Verify OAuth query HMAC (Shopify sends hex for query HMAC)
 const verifyShopifyHMAC = (query, hmacHeader) => {
   if (!query || !hmacHeader) return false;
 
@@ -21,23 +20,40 @@ const verifyShopifyHMAC = (query, hmacHeader) => {
     .map(key => `${key}=${query[key]}`)
     .join('&');
 
-  const generated = crypto.createHmac('sha256', config.shopifyApiSecret).update(message).digest('hex');
-  const genBuf = Buffer.from(generated, 'utf8');
-  const headerBuf = Buffer.from(hmacHeader || '', 'utf8');
+  // Shopify OAuth HMAC is hex
+  const generatedHex = crypto.createHmac('sha256', config.shopifyApiSecret).update(message).digest('hex');
 
-  if (genBuf.length !== headerBuf.length) return false;
-  return crypto.timingSafeEqual(genBuf, headerBuf);
+  try {
+    const genBuf = Buffer.from(generatedHex, 'hex');
+    const headerBuf = Buffer.from(hmacHeader || '', 'hex');
+    if (genBuf.length !== headerBuf.length) return false;
+    return crypto.timingSafeEqual(genBuf, headerBuf);
+  } catch (e) {
+    return false;
+  }
 };
 
-// rawBodyBuffer is the Buffer from express.raw
+
+
+// Verify webhook HMAC (Shopify sends base64 for webhook header)
 const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
   if (!rawBodyBuffer || !hmacHeader) return false;
-  const digest = crypto.createHmac('sha256', config.shopifyApiSecret).update(rawBodyBuffer).digest('base64');
-  const digestBuf = Buffer.from(digest, 'utf8');
-  const headerBuf = Buffer.from(hmacHeader || '', 'utf8');
-  if (digestBuf.length !== headerBuf.length) return false;
-  return crypto.timingSafeEqual(digestBuf, headerBuf);
+
+  // Compute base64 digest from raw bytes
+  const digestBase64 = crypto.createHmac('sha256', config.shopifyApiSecret)
+    .update(rawBodyBuffer)
+    .digest('base64');
+
+  try {
+    const digestBuf = Buffer.from(digestBase64, 'base64');
+    const headerBuf = Buffer.from(hmacHeader || '', 'base64');
+    if (digestBuf.length !== headerBuf.length) return false;
+    return crypto.timingSafeEqual(digestBuf, headerBuf);
+  } catch (e) {
+    return false;
+  }
 };
+
 
 const getRawBodyBuffer = (req) => {
   if (!req) return Buffer.from('');
@@ -540,20 +556,37 @@ export const handleProductWebhook = async (req, res) => {
 // @access  Private
 export const manualSync = async (req, res) => {
   try {
+    console.log("\n===============================");
+    console.log("🛠️  Manual Shopify Sync Started");
+    console.log("⏳ Time:", new Date().toISOString());
+    console.log("👤 User ID:", req.user?._id);
+    console.log("===============================\n");
+
     const user = await User.findById(req.user._id).select('+shopifyData.accessToken');
 
     if (!user.shopifyData || !user.shopifyData.accessToken) {
+      console.log("❌ Shopify NOT connected for this user");
       return res.status(400).json({
         success: false,
         message: 'Shopify not connected. Please install the Shopify app first.'
       });
     }
 
+    console.log("🔗 Shopify Connected:", user.shopifyData.shopDomain);
+    console.log("🔐 Access Token Found: YES");
+
     const count = await syncShopifyProducts(
       user._id,
       user.shopifyData.shopDomain,
       user.shopifyData.accessToken
     );
+
+    console.log("\n===============================");
+    console.log("✅ Shopify Sync Successful!");
+    console.log("📦 Total Products Synced:", count);
+    console.log("👤 User:", user.email);
+    console.log("⏰ Completed at:", new Date().toISOString());
+    console.log("===============================\n");
 
     res.status(200).json({
       success: true,
@@ -562,12 +595,19 @@ export const manualSync = async (req, res) => {
     });
 
   } catch (error) {
+    console.log("\n===============================");
+    console.log("❌ Shopify Sync FAILED!");
+    console.log("🔥 Error:", error.message);
+    console.log("⏰ Time:", new Date().toISOString());
+    console.log("===============================\n");
+
     res.status(500).json({
       success: false,
       message: error.message
     });
   }
 };
+
 
 // @desc    Get Shopify connection status
 // @route   GET /api/shopify/status

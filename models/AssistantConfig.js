@@ -77,7 +77,7 @@ const assistantConfigSchema = new mongoose.Schema(
 
         // Behaviour - Customer Message Limit
         customerMessageLimit: { type: Number, default: 20 },
-        customerMessageLimitMessage: { type: String, default: "I've received too many messages from you. Please wait for sometime or connect with us directly on call or WhatsApp at +91-9710000251" },
+        customerMessageLimitMessage: { type: String, default: "I've received too many messages from you. Please wait for sometime or connect with us directly on call or WhatsApp at +91-9999999999" },
 
         // Agent Handover - Manage Handover
         handoverIntents: [{ id: Number, text: String, color: String }],
@@ -85,8 +85,8 @@ const assistantConfigSchema = new mongoose.Schema(
         handoverSummaryEnabled: { type: Boolean, default: true },
 
         // Agent Handover - Flows
-        handoverFlowAvailable: { type: String, default: 'transfer' },
-        handoverFlowUnavailable: { type: String, default: 'message' },
+        handoverFlowAvailable: [{ type: String }],
+        handoverFlowUnavailable: [{ type: String }],
         handoverOfflineMessage: { type: String, default: '' },
 
         // Detailed Flow Configurations
@@ -99,7 +99,7 @@ const assistantConfigSchema = new mongoose.Schema(
             email: { type: String, default: '' },
             phone: { type: String, default: '' },
             phoneCode: { type: String, default: '+91' },
-            whatsapp: { type: String, default: '9710000251' },
+            whatsapp: { type: String, default: '9999999999' },
             whatsappCode: { type: String, default: '+91' },
             sms: { type: String, default: '9310000492' },
             smsCode: { type: String, default: '+91' },

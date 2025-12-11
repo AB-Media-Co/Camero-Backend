@@ -43,6 +43,9 @@ const chatConversationSchema = new mongoose.Schema(
       type: String,
       default: ""
     },
+    customerName: { type: String },
+    customerEmail: { type: String },
+    customerPhone: { type: String },
 
     // 3. Renamed "messages" to "conversation"
     conversation: [{

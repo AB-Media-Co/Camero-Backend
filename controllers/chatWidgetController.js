@@ -119,6 +119,7 @@ const getEffectiveConfig = async (user, sessionId, chatName) => {
 
     // Channels & Languages
     language: assistantConfig?.language || 'en',
+    activeChannel: assistantConfig?.activeChannel || 'Wp', // Added activeChannel
 
     // Behaviour - Content
     conversationStarters: assistantConfig?.conversationStarters || {},
@@ -126,7 +127,7 @@ const getEffectiveConfig = async (user, sessionId, chatName) => {
 
     // Behaviour (if needed by widget)
     customerMessageLimit: assistantConfig?.customerMessageLimit ?? 20,
-    customerMessageLimitMessage: assistantConfig?.customerMessageLimitMessage || "I've received too many messages from you. Please wait for sometime or connect with us directly on call or WhatsApp at +91-9710000251",
+    customerMessageLimitMessage: assistantConfig?.customerMessageLimitMessage || "I've received too many messages from you. Please wait for sometime or connect with us directly on call or WhatsApp at +91-9999999999",
     showAddToCart: assistantConfig?.showAddToCart ?? true,
 
     // Legacy fallback for position (if widget uses it directly)
@@ -136,7 +137,15 @@ const getEffectiveConfig = async (user, sessionId, chatName) => {
     businessHoursEnabled: assistantConfig?.businessHoursEnabled || false,
     businessHoursSchedule: assistantConfig?.businessHoursSchedule || [],
     businessHoursTimezone: assistantConfig?.businessHoursTimezone || 'UTC',
+
+    // Handover Flows & Settings
+    handoverSummaryEnabled: assistantConfig?.handoverSummaryEnabled ?? true,
     supportContact: assistantConfig?.supportContact || {},
+    supportRequest: assistantConfig?.supportRequest || {},
+    liveChat: assistantConfig?.liveChat || {},
+    createTicket: assistantConfig?.createTicket || {},
+    customHandover: assistantConfig?.customHandover || {},
+
     handoverOfflineMessage: assistantConfig?.handoverOfflineMessage || ""
   };
 
@@ -414,7 +423,11 @@ const getNudgeForPage = async (userId, pageUrl) => {
       if (collectionNudge) return collectionNudge;
     }
 
-    // Fallback to homepage nudge for all other pages (or if specific nudge not found)
+    // ⭐ Check for Custom Nudge (High Priority General Nudge)
+    const customNudge = nudges.find(n => n.type === 'custom');
+    if (customNudge) return customNudge;
+
+    // Fallback to homepage nudge for all other pages
     return nudges.find(n => n.type === 'homepage');
   } catch (e) {
     console.error('Error getting nudge:', e);
@@ -426,6 +439,37 @@ const isLikelyProviderKey = (key = '') => {
   if (typeof key !== 'string') return false;
   const trimmed = key.trim();
   return trimmed.startsWith('sk-') && trimmed.length >= 32;
+};
+
+// Check Handover Intent
+const checkHandoverIntent = (message, config) => {
+  const intents = config?.handoverIntents || [];
+  const lowerMsg = message.toLowerCase();
+
+  // Check dynamic intents
+  const matchedIntent = intents.find(i => lowerMsg.includes(i.text.toLowerCase()));
+
+  // Check hardcoded keywords if needed, or rely on config
+  const fallbackKeywords = ['talk to human', 'speak to agent', 'support', 'human agent'];
+  const isFallback = fallbackKeywords.some(k => lowerMsg.includes(k));
+
+  if (matchedIntent || isFallback) {
+    const { isOpen } = checkBusinessHours(config);
+    const flowIds = isOpen
+      ? config.handoverFlowAvailable
+      : config.handoverFlowUnavailable;
+
+    // Ensure we always have an array
+    const flows = Array.isArray(flowIds) ? flowIds : (flowIds ? [flowIds] : []);
+
+    return {
+      shouldHandover: true,
+      isOpen,
+      flows
+    };
+  }
+
+  return { shouldHandover: false };
 };
 
 // ========== Send Message (Session-based) ==========
@@ -484,6 +528,30 @@ export const sendMessage = async (req, res) => {
           metadata: { userAgent: req.headers['user-agent'], pageUrl, referrer }
         });
         console.log('✅ New conversation created:', conversationDoc.chatName);
+      }
+
+      // ⭐ NEW: Check Customer Message Limit (Per Session/Hour)
+      const limit = apiKey.user.assistantConfig?.customerMessageLimit ?? 20;
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recentCount = conversationDoc.conversation.filter(
+        m => m.role === 'user' && new Date(m.last_message_at) > oneHourAgo
+      ).length;
+
+      if (recentCount >= limit) {
+        console.warn(`⛔ Message limit reached for session ${sessionId} (${recentCount}/${limit})`);
+        const limitMsg = apiKey.user.assistantConfig?.customerMessageLimitMessage || "You have reached the message limit. Please try again later.";
+
+        // Return 200 with the limit message as if it came from the bot
+        return res.status(200).json({
+          success: true,
+          data: {
+            message: limitMsg,
+            sessionId: conversationDoc.sessionId,
+            chatName: conversationDoc.chatName,
+            products: [],
+            action: 'limit_reached' // Optional flag for frontend
+          }
+        });
       }
 
       // 5. ⭐ SAVE USER MESSAGE IMMEDIATELY
@@ -573,6 +641,44 @@ export const sendMessage = async (req, res) => {
       };
     }
 
+    // ⭐ NEW: Check Handover Intent BEFORE AI processing
+    // Only check if we have a config and it's not playground
+    if (!isPlayground && apiKey.user.assistantConfig) {
+      const handoverCheck = checkHandoverIntent(message, apiKey.user.assistantConfig);
+      if (handoverCheck.shouldHandover) {
+        console.log('⚡ Handover Triggered. Flows:', handoverCheck.flows);
+
+        // If handover summary is enabled, we DO NOT return immediately.
+        // We let the AI generate a summary first, but we attach a system instruction to force it.
+        // However, the Widget needs to know "Action: Handover" to show buttons.
+
+        // STRATEGY:
+        // 1. If summary enabled: Ask AI to summarize, then Frontend sees "Handover" action + Message.
+        // 2. If summary disabled: Return hardcoded message + Handover Action immediately.
+
+        const summaryEnabled = apiKey.user.assistantConfig.handoverSummaryEnabled ?? true;
+
+        if (!summaryEnabled) {
+          return res.status(200).json({
+            success: true,
+            data: {
+              message: apiKey.user.assistantConfig.handoverOfflineMessage || "Connecting you to an agent...",
+              action: 'handover',
+              handoverData: handoverCheck.flows,
+              sessionId: conversationDoc?.sessionId || sessionId,
+              chatName: conversationDoc?.chatName || 'Chat'
+            }
+          });
+        }
+
+        // If summary enabled, we add a flag to the prompt or rely on the system prompt instruction we added earlier.
+        // But we need to tell the frontend to show buttons AFTER this message.
+        // So we will process AI response, then attach action='handover' to the FINAL response.
+        req.handoverTriggered = true;
+        req.handoverFlows = handoverCheck.flows;
+      }
+    }
+
     const systemPrompt = buildSystemPrompt(apiKey.user, knowledge, ragContextText + pastContext);
 
     // Build conversation history for AI context
@@ -587,8 +693,23 @@ export const sendMessage = async (req, res) => {
       conversationForAI = conversationHistory;
     }
 
+    // ⭐ NEW: Lead Generation Trigger
+    let leadGenInstruction = '';
+    const leadConfig = apiKey.user.assistantConfig;
+    if (leadConfig?.leadAskOnConversationStart && !isPlayground) {
+      const userMsgCount = conversationHistory.filter(m => m.role === 'user').length + 1; // +1 for current
+      const askAt = leadConfig.leadAskAfterMessages || 5;
+
+      if (userMsgCount === askAt) {
+        const type = leadConfig.leadCollectionType || 'email'; // email or phone
+        const mandatory = leadConfig.leadCollectionMandatory ? "mandatorily" : "politely";
+        leadGenInstruction = `\n\nSYSTEM ALERT: This is the ${userMsgCount}th message. You must now ${mandatory} ask the user for their ${type} to stay connected. Do not block the conversation, but make sure to ask.`;
+        console.log('⚡ Lead Gen Triggered at message', userMsgCount);
+      }
+    }
+
     const aiMessages = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: systemPrompt + leadGenInstruction },
       ...conversationForAI.slice(-10).map(m => ({
         role: m.role === 'bot' ? 'assistant' : m.role,
         content: m.message
@@ -675,7 +796,10 @@ export const sendMessage = async (req, res) => {
         message: aiResponse.message,
         sessionId: conversationDoc?.sessionId || sessionId,
         chatName: conversationDoc?.chatName || 'Playground Chat',
-        products: productsToShow
+        products: productsToShow,
+        // Trigger handover if flagged
+        action: req.handoverTriggered ? 'handover' : undefined,
+        handoverData: req.handoverTriggered ? req.handoverFlows : undefined
       }
     });
 
@@ -770,64 +894,92 @@ const isProductQuery = (message) => {
 const buildSystemPrompt = (user, knowledge, ragContext = '') => {
   let prompt = `You are ${user.assistantConfig?.name || 'AI Assistant'}, a helpful AI assistant for ${user.name}'s website.`;
 
-  const personality = user.assistantConfig?.personality || 'professional';
-
-  if (personality === 'friendly') {
-    prompt += ' You are warm, friendly, and conversational. Use a casual tone and emojis occasionally.';
-  } else if (personality === 'playful') {
-    prompt += ' You are fun, energetic, and engaging. Use humor and emojis to make conversations enjoyable.';
-  } else {
-    // Default to professional
-    prompt += ' You are professional, helpful, and courteous. Provide clear and concise answers.';
-  }
-
-  // ⭐ NEW: Language Instruction
-  const language = user.assistantConfig?.language || 'en';
-  const langMap = {
-    'en': 'English',
-    'es': 'Spanish',
-    'fr': 'French',
-    'de': 'German',
-    'it': 'Italian',
-    'pt': 'Portuguese',
-    'nl': 'Dutch',
-    'hi': 'Hindi',
-    'zh': 'Chinese',
-    'ja': 'Japanese'
-  };
-  const targetLang = langMap[language] || 'English';
-  prompt += `\n\n**IMPORTANT:** You must ALWAYS reply in **${targetLang}**.`;
-
-  // ⭐ NEW: Custom Instructions from Configuration
-  const customInstructions = user.assistantConfig?.customInstructions || '';
-  if (customInstructions) {
-    prompt += `\n\n**CUSTOM INSTRUCTIONS:**\n${customInstructions}`;
-  }
-
   const websiteUrl = user.storeUrl || '';
   if (websiteUrl) {
     prompt += ` You primarily assist visitors of the website ${websiteUrl}.`;
   }
 
-  // Response formatting instructions
-  prompt += `\n\n**FORMATTING GUIDELINES:**
-- Use **bold** for important terms or highlights
-- Use bullet points (- item) for lists
-- Use numbered lists (1. item) for steps or rankings
-- Keep paragraphs short and readable
-- Use line breaks between sections
-- Be concise but informative`;
+  // --- 1. PERSONALITY & TONE ---
+  const personality = user.assistantConfig?.personality || 'professional';
+  const personalityDesc = user.assistantConfig?.personalityDescription || '';
 
+  prompt += `\n\n**YOUR PERSONALITY:**\n`;
+  if (personality === 'friendly') {
+    prompt += 'You are warm, friendly, and conversational. Use a casual tone and emojis occasionally to create a welcoming vibe.';
+  } else if (personality === 'playful') {
+    prompt += 'You are fun, energetic, and engaging. Use humor and emojis to make conversations enjoyable and lively.';
+  } else if (personality === 'empathetic') {
+    prompt += 'You are understanding, supportive, and kind. Show genuine care and empathy in your responses.';
+  } else {
+    // Default to professional
+    prompt += 'You are professional, helpful, and courteous. Provide clear, concise, and business-like answers.';
+  }
+
+  if (personalityDesc) {
+    prompt += `\nAdditional style adjustment: ${personalityDesc}`;
+  }
+
+  // --- 2. LANGUAGE ---
+  const language = user.assistantConfig?.language || 'en';
+  const langMap = {
+    'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German',
+    'it': 'Italian', 'pt': 'Portuguese', 'nl': 'Dutch', 'hi': 'Hindi',
+    'zh': 'Chinese', 'ja': 'Japanese'
+  };
+  const targetLang = langMap[language] || 'English';
+  prompt += `\n\n**LANGUAGE INSTRUCTION:**\nYou must ALWAYS reply in **${targetLang}**. activeChannel only supports text.`;
+
+  // --- 3. BRAND CONTEXT ---
+  const brandDesc = user.assistantConfig?.brandDescription || '';
+  if (brandDesc) {
+    prompt += `\n\n**ABOUT THE BRAND (Context):**\n${brandDesc}\n(Use this information to answer questions about who we are and what we do.)`;
+  }
+
+  // --- 4. RESPONSE GUIDELINES ---
+  const lengthMode = user.assistantConfig?.responseLength || 'balanced';
+  prompt += `\n\n**RESPONSE GUIDELINES:**`;
+
+  if (lengthMode === 'concise') {
+    prompt += `\n- Keep answers VERY SHORT and direct (1-2 sentences max).`;
+  } else if (lengthMode === 'detailed') {
+    prompt += `\n- Provide comprehensive, detailed explanations.`;
+  } else {
+    prompt += `\n- Aim for a balanced length (approx 3-4 sentences).`;
+  }
+
+  prompt += `
+- Use **bold** for key terms.
+- Use lists for readability.
+- Be concise but helpful.`;
+
+  // --- 5. CUSTOM INSTRUCTIONS ---
+  const customInstructions = user.assistantConfig?.customInstructions || '';
+  if (customInstructions) {
+    prompt += `\n\n**OPERATIONAL INSTRUCTIONS (Priority):**\n${customInstructions}`;
+  }
+
+  // --- 6. STRICT GUARDRAILS ---
+  const guardrails = user.assistantConfig?.guardrails || '';
+  if (guardrails) {
+    prompt += `\n\n**⛔ STRICT GUARDRAILS (DO NOT IGNORE):**\n${guardrails}\n(If a user asks about anything violating these, politely decline.)`;
+  }
+
+  // --- 7. HANDOVER SUMMARY ---
+  if (user.assistantConfig?.handoverSummaryEnabled) {
+    prompt += `\n\n**HANDOVER PROTOCOL:**\nIf the user asks for a human agent, BEFORE confirming, strictly provide a brief Markdown summary of the issue so far.`;
+  }
+
+  // --- 8. KNOWLEDGE BASE ---
   if (knowledge) {
     if (knowledge.products && knowledge.products.length > 0) {
-      prompt += `\n\n**PRODUCTS AVAILABLE:**\n`;
+      prompt += `\n\n**AVAILABLE PRODUCTS:**\n`;
       knowledge.products.slice(0, 20).forEach(product => {
-        prompt += `- **${product.name}**: ${product.description || 'No description'} (Price: $${product.price || 'N/A'})\n`;
+        prompt += `- ${product.name}: ${product.description || 'No desc'} ($${product.price || 'N/A'})\n`;
       });
     }
 
     if (knowledge.faqs && knowledge.faqs.length > 0) {
-      prompt += `\n\n**FAQs:**\n`;
+      prompt += `\n\n**FAQ Database:**\n`;
       knowledge.faqs.forEach(faq => {
         prompt += `Q: ${faq.question}\nA: ${faq.answer}\n\n`;
       });
@@ -835,7 +987,7 @@ const buildSystemPrompt = (user, knowledge, ragContext = '') => {
 
     const websiteSnapshots = knowledge.webSnapshots?.filter(snapshot => snapshot.status === 'success') || [];
     if (websiteSnapshots.length > 0) {
-      prompt += `\n\n**Website content highlights:**\n`;
+      prompt += `\n\n**WEBSITE CONTENT:**\n`;
       websiteSnapshots.slice(0, 5).forEach(snapshot => {
         prompt += `- ${snapshot.title || snapshot.url}: ${snapshot.summary || snapshot.contentPreview}\n`;
       });
@@ -843,10 +995,10 @@ const buildSystemPrompt = (user, knowledge, ragContext = '') => {
   }
 
   if (ragContext) {
-    prompt += `\n\n**DETAILED WEBSITE CONTEXT** (most relevant to the user's latest query):\n${ragContext}\n`;
+    prompt += `\n\n**RELEVANT WEBSITE CONTEXT (Source of Truth):**\n${ragContext}\n`;
   }
 
-  prompt += `\n\nYour goal is to help visitors find information, answer questions about products, and provide excellent customer service. Use only the website-related context when answering questions about this specific business. If you're unsure, say you don't have enough information instead of guessing.`;
+  prompt += `\n\n**FINAL GOAL:** Help the user based *only* on the provided context. If unsure, admit it.`;
 
   return prompt;
 };
@@ -1024,4 +1176,48 @@ export const trackConversion = async (req, res) => {
   }
 };
 
-export default { initChatSession, sendMessage, getChatHistory, trackConversion, checkCustomer, getAllConversations, getConversationById, markChatsAsSeen, getSeenChats };
+// ========== Submit Lead (Lead Generation) ==========
+export const submitLead = async (req, res) => {
+  try {
+    const { sessionId, email, phone, name } = req.body;
+    const apiKeyString = req.headers['x-api-key'];
+
+    if (!apiKeyString) return res.status(401).json({ success: false, message: 'API key required' });
+    if (!sessionId) return res.status(400).json({ success: false, message: 'Session ID required' });
+
+    const apiKey = await ApiKey.findOne({ key: apiKeyString }).populate('user');
+    if (!apiKey || !apiKey.isActive) return res.status(401).json({ success: false, message: 'Invalid API key' });
+
+    const conversation = await ChatConversation.findOne({
+      user: apiKey.user._id,
+      sessionId: sessionId
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ success: false, message: 'Conversation not found' });
+    }
+
+    // Update fields if provided
+    if (email) conversation.customerEmail = email;
+    if (phone) conversation.customerPhone = phone;
+    if (name) conversation.customerName = name;
+
+    // Also track as a conversion of type 'lead'
+    conversation.conversions.push({
+      type: 'lead',
+      value: 0,
+      metadata: { email, phone, name, source: 'chat_widget_lead_gen' },
+      timestamp: new Date()
+    });
+    conversation.hasConversion = true;
+
+    await conversation.save();
+
+    return res.status(200).json({ success: true, message: 'Lead submitted successfully' });
+  } catch (error) {
+    console.error('Submit lead error:', error);
+    return res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+export default { initChatSession, sendMessage, getChatHistory, trackConversion, submitLead, checkCustomer, getAllConversations, getConversationById, markChatsAsSeen, getSeenChats };
