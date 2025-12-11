@@ -66,20 +66,6 @@ export const protect = async (req, res, next) => {
       return next();
     } catch (err2) {
       console.error('Shopify session token verification failed:', err2.message);
-      if (err2.message === 'invalid signature') {
-        console.error('Debug: Checked against secret length:', config.shopifyApiSecret ? config.shopifyApiSecret.length : 0);
-        const decodedDebug = jwt.decode(token, { complete: true });
-        if (decodedDebug) {
-          console.log('--- DEBUG TOKEN INFO ---');
-          console.log('Header:', JSON.stringify(decodedDebug.header));
-          console.log('Payload aud:', decodedDebug.payload.aud);
-          console.log('Payload iss:', decodedDebug.payload.iss);
-          console.log('Expected aud (API Key):', config.shopifyApiKey);
-          console.log('------------------------');
-        } else {
-          console.error('Debug: Token could not be decoded (malformed?)');
-        }
-      }
       return res.status(401).json({
         success: false,
         message: 'Not authorized to access this route',
