@@ -13,7 +13,7 @@ export const config = {
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   // ⭐ OpenAI - Make sure this exists
   defaultOpenAIKey: (process.env.DEFAULT_OPENAI_KEY || '').trim(),
-  shopifyApiSecret: process.env.SHOPIFY_API_SECRET || '',
+  shopifyApiSecret: process.env.shopifyApiSecret || '',
   shopifyApiKey: process.env.SHOPIFY_API_KEY,          // from Dev Dashboard
 
 };
