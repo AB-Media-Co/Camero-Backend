@@ -34,6 +34,10 @@ export const protect = async (req, res, next) => {
       console.log('Normal JWT verification failed, trying Shopify session token');
     }
 
+    if (!config.shopifyApiSecret) {
+      console.warn('⚠️ WARNING: shopifyApiSecret is missing/empty in config! Shopify token verification will fail.');
+    }
+
     // 2️⃣ Try: Shopify session token (App Bridge)
     try {
       const shopifyPayload = jwt.verify(token, config.shopifyApiSecret, {
@@ -61,7 +65,10 @@ export const protect = async (req, res, next) => {
       req.user = user;
       return next();
     } catch (err2) {
-      console.error('Shopify session token verification failed:', err2);
+      console.error('Shopify session token verification failed:', err2.message);
+      if (err2.message === 'invalid signature') {
+        console.error('Debug: Checked against secret length:', config.shopifyApiSecret ? config.shopifyApiSecret.length : 0);
+      }
       return res.status(401).json({
         success: false,
         message: 'Not authorized to access this route',
