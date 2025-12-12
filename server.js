@@ -3,6 +3,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { config } from './config/config.js';
 import connectDB from './config/db.js';
 import authRoutes from './routes/auth.js';
@@ -57,12 +58,14 @@ app.use(cors({
   credentials: true,
 }));
 
+// cookie parser for storing/validating oauth state
+app.use(cookieParser());
+
 // BEFORE app.use(express.json())
 app.post('/api/shopify/webhooks/products', express.raw({ type: 'application/json' }), shopifyController.handleProductWebhook);
 app.post('/api/shopify/webhooks/customers_data_request', express.raw({ type: 'application/json' }), shopifyController.handleCustomersDataRequest);
 app.post('/api/shopify/webhooks/customers_redact', express.raw({ type: 'application/json' }), shopifyController.handleCustomersRedact);
 app.post('/api/shopify/webhooks/shop_redact', express.raw({ type: 'application/json' }), shopifyController.handleShopRedact);
-
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -77,19 +80,14 @@ app.use((req, res, next) => {
 });
 
 // --------- Static file serving ----------
-// Public (widgets, assets you want served as-is)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
-// Serve widget.js directly from public (keeps widget independent of React build)
 app.get('/widget.js', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'widget.js'));
 });
 
-// Production React build serving
-// Place your React build folder at ./client/build
 const reactBuildPath = path.join(__dirname, 'client', 'build');
 app.use(express.static(reactBuildPath));
-
 
 // --------- API Routes ----------
 app.use('/api/auth', authRoutes);
@@ -115,7 +113,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Test widget endpoint (keeps unchanged)
+// Test widget endpoint
 app.get('/test-widget', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -147,7 +145,6 @@ app.get(/.*/, (req, res, next) => {
   });
 });
 
-
 // --------- Error handlers ----------
 app.use((err, req, res, next) => {
   console.error(err.stack);
@@ -168,7 +165,7 @@ app.use((req, res) => {
   });
 });
 
-// Initialize sockets after routes (or anywhere before listen)
+// Initialize sockets after routes
 initializeSocket(io);
 
 // Start server

@@ -10,40 +10,55 @@ import UserActivity from '../models/UserActivity.js';
 import { ROLES, PLAN_STATUS } from '../utils/constants.js';
 import ChatConversation from '../models/ChatConversation.js';
 
-// Verify OAuth query HMAC (Shopify sends hex for query HMAC)
-const verifyShopifyHMAC = (query, hmacHeader) => {
-  if (!query || !hmacHeader) return false;
+// ----------------- Helper utilities -----------------
+const mask = (s, keep = 8) => s ? `${s.slice(0, keep)}...` : 'none';
 
-  const message = Object.keys(query)
-    .filter(key => key !== 'hmac' && key !== 'signature')
-    .sort()
-    .map(key => `${key}=${query[key]}`)
-    .join('&');
+const getRawBodyBuffer = (req) => {
+  if (!req) return Buffer.from('');
+  if (Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === 'string') return Buffer.from(req.body, 'utf8');
+  return Buffer.from(JSON.stringify(req.body || {}), 'utf8');
+};
 
-  // Shopify OAuth HMAC is hex
-  const generatedHex = crypto.createHmac('sha256', config.shopifyApiSecret).update(message).digest('hex');
-
+// ----------------- OAuth HMAC verification -----------------
+// Use raw query string (req.originalUrl) to preserve original encoding
+export const verifyShopifyHMAC = (req, hmacHeader) => {
   try {
+    if (!req || !hmacHeader) return false;
+
+    const original = req.originalUrl || req.url || '';
+    const qIndex = original.indexOf('?');
+    let rawQuery = '';
+    if (qIndex >= 0) {
+      rawQuery = original.slice(qIndex + 1);
+    } else if (req.query && Object.keys(req.query).length) {
+      // fallback build canonical string
+      rawQuery = Object.keys(req.query)
+        .filter(k => k !== 'hmac' && k !== 'signature')
+        .sort()
+        .map(k => {
+          const v = req.query[k];
+          return Array.isArray(v) ? v.map(x => `${k}=${x}`).join('&') : `${k}=${v}`;
+        })
+        .join('&');
+    }
+
+    const generatedHex = crypto.createHmac('sha256', config.shopifyApiSecret).update(rawQuery).digest('hex');
+
     const genBuf = Buffer.from(generatedHex, 'hex');
     const headerBuf = Buffer.from(hmacHeader || '', 'hex');
     if (genBuf.length !== headerBuf.length) return false;
     return crypto.timingSafeEqual(genBuf, headerBuf);
-  } catch (e) {
+  } catch (err) {
+    console.error('verifyShopifyHMAC error:', err?.message || err);
     return false;
   }
 };
 
-
-
-// Verify webhook HMAC (Shopify sends base64 for webhook header)
-const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
+// ----------------- Webhook verification -----------------
+export const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
   if (!rawBodyBuffer || !hmacHeader) return false;
-
-  // Compute base64 digest from raw bytes
-  const digestBase64 = crypto.createHmac('sha256', config.shopifyApiSecret)
-    .update(rawBodyBuffer)
-    .digest('base64');
-
+  const digestBase64 = crypto.createHmac('sha256', config.shopifyApiSecret).update(rawBodyBuffer).digest('base64');
   try {
     const digestBuf = Buffer.from(digestBase64, 'base64');
     const headerBuf = Buffer.from(hmacHeader || '', 'base64');
@@ -54,95 +69,82 @@ const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
   }
 };
 
-
-const getRawBodyBuffer = (req) => {
-  if (!req) return Buffer.from('');
-  if (Buffer.isBuffer(req.body)) return req.body;
-  if (typeof req.body === 'string') return Buffer.from(req.body, 'utf8');
-  return Buffer.from(JSON.stringify(req.body || {}), 'utf8');
-};
-
-
-
-// @desc    Shopify OAuth installation URL
-// @route   GET /api/shopify/install
-// @access  Public
+// ----------------- Install URL (set nonce cookie) -----------------
 export const getInstallUrl = async (req, res) => {
   try {
     const { shop } = req.query;
-
     if (!shop) {
-      return res.status(400).json({
-        success: false,
-        message: 'Shop parameter is required'
-      });
+      return res.status(400).json({ success: false, message: 'Shop parameter is required' });
     }
 
     const scopes = 'read_products,write_products,read_orders,read_customers';
     const redirectUri = `${config.backendUrl}/api/shopify/callback`;
     const nonce = crypto.randomBytes(16).toString('hex');
 
+    res.cookie('shopify_oauth_state', nonce, {
+      httpOnly: true,
+      sameSite: 'None',
+      secure: config.nodeEnv === 'production',
+      maxAge: 5 * 60 * 1000 // 5 minutes
+    });
+
     const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${config.shopifyApiKey}&scope=${scopes}&redirect_uri=${redirectUri}&state=${nonce}`;
 
-    res.status(200).json({
-      success: true,
-      data: {
-        installUrl,
-        nonce
-      }
-    });
-
+    res.status(200).json({ success: true, data: { installUrl, nonce } });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    console.error('getInstallUrl error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Shopify OAuth callback
-// @route   GET /api/shopify/callback
-// @access  Public
+// ----------------- Shopify OAuth callback -----------------
 export const shopifyCallback = async (req, res) => {
   try {
     const { code, hmac, shop, state } = req.query;
 
+    console.log('🔔 Shopify callback hit for shop:', shop);
+    console.log('🔎 HMAC (masked):', hmac ? mask(hmac) : 'none');
+    console.log('🔎 State from query (masked):', state ? mask(state) : 'none');
+
     // Verify HMAC
-    if (!verifyShopifyHMAC(req.query, hmac)) {
+    if (!verifyShopifyHMAC(req, hmac)) {
+      console.warn('❌ HMAC verification failed. rawQuery (start):', (req.originalUrl || '').slice(0, 300));
       return res.status(401).send('Invalid HMAC - Authentication failed');
     }
 
+    // Verify state (nonce)
+    const cookieState = req.cookies?.shopify_oauth_state;
+    if (!state || !cookieState || state !== cookieState) {
+      console.warn('❌ Invalid or missing state. cookie:', cookieState ? mask(cookieState) : 'none');
+      return res.status(401).send('Invalid state parameter');
+    }
+    // Clear cookie
+    res.clearCookie('shopify_oauth_state');
+
     // Exchange code for access token
-    const tokenResponse = await axios.post(
-      `https://${shop}/admin/oauth/access_token`,
-      {
-        client_id: config.shopifyApiKey,
-        client_secret: config.shopifyApiSecret,
-        code
-      }
-    );
+    const tokenResponse = await axios.post(`https://${shop}/admin/oauth/access_token`, {
+      client_id: config.shopifyApiKey,
+      client_secret: config.shopifyApiSecret,
+      code
+    });
 
     const { access_token } = tokenResponse.data;
+    if (!access_token) {
+      console.error('❌ No access_token returned from Shopify');
+      return res.status(500).send('No access token');
+    }
+    console.log('🔐 Received access token (masked):', mask(access_token));
 
     // Get shop info
-    const shopInfoResponse = await axios.get(
-      `https://${shop}/admin/api/2024-01/shop.json`,
-      {
-        headers: {
-          'X-Shopify-Access-Token': access_token
-        }
-      }
-    );
-
+    const shopInfoResponse = await axios.get(`https://${shop}/admin/api/2024-01/shop.json`, {
+      headers: { 'X-Shopify-Access-Token': access_token }
+    });
     const shopData = shopInfoResponse.data.shop;
 
-    // Get default plan for Shopify users
+    // default plan find/create (unchanged)
     let defaultPlan = await Plan.findOne({
       isActive: true,
-      $or: [
-        { name: { $regex: /free|trial|shopify/i } },
-        { price: 0 }
-      ]
+      $or: [{ name: { $regex: /free|trial|shopify/i } }, { price: 0 }]
     }).sort({ price: 1 });
 
     if (!defaultPlan) {
@@ -150,16 +152,10 @@ export const shopifyCallback = async (req, res) => {
         name: 'Shopify Free Plan',
         description: 'Free plan for Shopify stores',
         price: 0,
-        duration: 3650, // 10 years (effectively lifetime for free plan)
+        duration: 3650,
         maxProducts: 500,
         maxChats: 1000,
-        features: {
-          chatbot: { enabled: true },
-          analytics: { enabled: true },
-          customization: { enabled: true },
-          support: { enabled: false },
-          training: { enabled: true }
-        },
+        features: { chatbot: { enabled: true }, analytics: { enabled: true }, customization: { enabled: true }, support: { enabled: false }, training: { enabled: true } },
         isActive: true
       });
     }
@@ -171,7 +167,6 @@ export const shopifyCallback = async (req, res) => {
     let user = await User.findOne({ email: shopData.email });
 
     if (!user) {
-      // Create new user
       const randomPassword = crypto.randomBytes(32).toString('hex');
 
       user = await User.create({
@@ -199,7 +194,7 @@ export const shopifyCallback = async (req, res) => {
         }
       });
 
-      // Auto-create API key
+      // Create API key (unchanged)
       const apiKey = await ApiKey.create({
         user: user._id,
         key: ApiKey.generateKey(),
@@ -214,17 +209,9 @@ export const shopifyCallback = async (req, res) => {
       });
 
       console.log('✅ New Shopify user created:', user.email);
-      console.log('✅ API Key created:', apiKey.key);
-
+      console.log('✅ API Key created (masked):', mask(apiKey.key || ''));
     } else {
-      // Update existing user
       console.log('🔄 Updating existing user:', user.email);
-      console.log('📝 New Shopify Data to save:', {
-        shopDomain: shop,
-        hasToken: !!access_token,
-        shopId: shopData.id.toString()
-      });
-
       user.shopifyData = {
         shopDomain: shop,
         accessToken: access_token,
@@ -234,87 +221,54 @@ export const shopifyCallback = async (req, res) => {
       };
       user.storeUrl = `https://${shop}`;
 
-      const savedUser = await user.save();
-      console.log('✅ User saved. UpdatedAt:', savedUser.updatedAt);
-      console.log('🔍 Saved ShopifyData:', savedUser.shopifyData); // Check if it's in the returned doc
+      try {
+        await user.save();
+        console.log('✅ User saved. UpdatedAt:', user.updatedAt || new Date().toISOString());
+      } catch (saveErr) {
+        console.error('❌ Failed to save user.shopifyData:', saveErr);
+        return res.status(500).send('Failed to save user data');
+      }
     }
 
-    // Sync products
-    await syncShopifyProducts(user._id, shop, access_token);
+    // Re-load user to ensure shopifyData.accessToken is present (force select in case schema hides it)
+    try {
+      const reloaded = await User.findOne({ email: shopData.email }).select('+shopifyData +shopifyData.accessToken').lean();
+      if (reloaded) user = reloaded;
+    } catch (e) {
+      console.warn('Could not re-fetch user with explicit select:', e?.message || e);
+    }
 
-    // Register webhooks
-    await registerShopifyWebhooks(shop, access_token);
+    console.log('🔁 Post-save user (shopifyData present?):', !!(user && user.shopifyData));
+    console.log('🔍 shopDomain:', user?.shopifyData?.shopDomain || 'none');
+    console.log('🔐 accessToken (masked):', user?.shopifyData?.accessToken ? mask(user.shopifyData.accessToken) : 'NONE');
 
-    // Log activity
+    const tokenToUse = (user && user.shopifyData && user.shopifyData.accessToken) ? user.shopifyData.accessToken : access_token;
+
+    // Sync products + register webhooks (same functions as before)
+    await syncShopifyProducts(user._id, shop, tokenToUse);
+    await registerShopifyWebhooks(shop, tokenToUse);
+
+    // Log activity & respond with your success HTML (you can keep your original HTML)
     await UserActivity.create({
       user: user._id,
       action: 'shopify_app_installed',
-      details: {
-        shop: shop,
-        planName: shopData.plan_name
-      }
+      details: { shop: shop, planName: shopData.plan_name }
     });
 
-    // Redirect to success page with user's API key
-    const apiKey = await ApiKey.findOne({ user: user._id });
-
+    // Return success page (you can reuse your existing success HTML)
     res.send(`
       <!DOCTYPE html>
       <html>
       <head>
         <title>Shopify App Installed Successfully</title>
         <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          }
-          .container {
-            background: white;
-            padding: 3rem;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-            max-width: 600px;
-            text-align: center;
-          }
-          h1 {
-            color: #10b981;
-            margin-bottom: 1rem;
-          }
-          .success-icon {
-            font-size: 64px;
-            margin-bottom: 1rem;
-          }
-          .info {
-            background: #f3f4f6;
-            padding: 1.5rem;
-            border-radius: 8px;
-            margin: 2rem 0;
-            text-align: left;
-          }
-          code {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 1rem;
-            border-radius: 6px;
-            display: block;
-            margin-top: 1rem;
-            font-size: 12px;
-            overflow-x: auto;
-          }
-          .button {
-            display: inline-block;
-            background: #667eea;
-            color: white;
-            padding: 12px 24px;
-            border-radius: 6px;
-            text-decoration: none;
-            margin-top: 1rem;
-          }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); }
+          .container { background:white; padding:3rem; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.2); max-width:600px; text-align:center; }
+          h1 { color:#10b981; margin-bottom:1rem; }
+          .success-icon { font-size:64px; margin-bottom:1rem; }
+          .info { background:#f3f4f6; padding:1.5rem; border-radius:8px; margin:2rem 0; text-align:left; }
+          code { background:#1e1e1e; color:#d4d4d4; padding:1rem; border-radius:6px; display:block; margin-top:1rem; font-size:12px; overflow-x:auto; }
+          .button { display:inline-block; background:#667eea; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; margin-top:1rem; }
         </style>
       </head>
       <body>
@@ -322,25 +276,20 @@ export const shopifyCallback = async (req, res) => {
           <div class="success-icon">✅</div>
           <h1>App Installed Successfully!</h1>
           <p>Your AI Chat Widget is now ready to use.</p>
-          
           <div class="info">
             <h3>Next Steps:</h3>
-            <ol style="text-align: left;">
+            <ol style="text-align:left;">
               <li>We've automatically synced ${await ProductKnowledge.findOne({ user: user._id }).then(k => k?.products?.length || 0)} products from your store</li>
               <li>Your widget is now live on your store</li>
               <li>Login to your dashboard to customize it</li>
             </ol>
           </div>
-
           <div class="info">
             <h3>Your Login Credentials:</h3>
             <p><strong>Email:</strong> ${user.email}</p>
             <p><strong>Dashboard:</strong> <a href="${config.frontendUrl}/login">${config.frontendUrl}</a></p>
-            <p style="font-size: 12px; color: #6b7280; margin-top: 1rem;">
-              Check your email for password reset link
-            </p>
+            <p style="font-size:12px; color:#6b7280; margin-top:1rem;">Check your email for password reset link</p>
           </div>
-
           <a href="${config.frontendUrl}/login" class="button">Go to Dashboard</a>
         </div>
       </body>
@@ -348,21 +297,18 @@ export const shopifyCallback = async (req, res) => {
     `);
 
   } catch (error) {
-    console.error('❌ Shopify callback error:', error);
+    console.error('❌ Shopify callback error:', error?.message || error);
     res.status(500).send(`
-      <!DOCTYPE html>
-      <html>
-      <body style="font-family: sans-serif; text-align: center; padding: 2rem;">
-        <h1 style="color: #ef4444;">Installation Failed</h1>
-        <p>${error.message}</p>
-        <a href="/" style="color: #3b82f6;">Try Again</a>
-      </body>
-      </html>
+      <!DOCTYPE html><html><body style="font-family: sans-serif; text-align:center; padding:2rem;">
+        <h1 style="color:#ef4444;">Installation Failed</h1>
+        <p>${error?.message || 'unknown error'}</p>
+        <a href="/" style="color:#3b82f6;">Try Again</a>
+      </body></html>
     `);
   }
 };
 
-// Sync Shopify products
+// ----------------- Sync products, register webhooks, and webhook handlers (unchanged logic) -----------------
 const syncShopifyProducts = async (userId, shopDomain, accessToken) => {
   try {
     let allProducts = [];
@@ -404,22 +350,12 @@ const syncShopifyProducts = async (userId, shopDomain, accessToken) => {
       url: `https://${shopDomain}/products/${product.handle}`,
       imageUrl: product.images[0]?.src || '',
       stock: product.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0),
-      metadata: {
-        shopifyId: product.id,
-        vendor: product.vendor,
-        variants: product.variants.length
-      }
+      metadata: { shopifyId: product.id, vendor: product.vendor, variants: product.variants.length }
     }));
 
     let knowledge = await ProductKnowledge.findOne({ user: userId });
-
     if (!knowledge) {
-      knowledge = await ProductKnowledge.create({
-        user: userId,
-        products: formattedProducts,
-        faqs: [],
-        customResponses: []
-      });
+      knowledge = await ProductKnowledge.create({ user: userId, products: formattedProducts, faqs: [], customResponses: [] });
     } else {
       knowledge.products = formattedProducts;
       knowledge.lastSynced = new Date();
@@ -430,7 +366,7 @@ const syncShopifyProducts = async (userId, shopDomain, accessToken) => {
     return formattedProducts.length;
 
   } catch (error) {
-    console.error('❌ Shopify sync error:', error);
+    console.error('❌ Shopify sync error:', error?.message || error);
     throw error;
   }
 };
@@ -452,32 +388,21 @@ const registerShopifyWebhooks = async (shop, accessToken) => {
 
   for (const hook of allHooks) {
     try {
-      await axios.post(
-        `https://${shop}/admin/api/2024-01/webhooks.json`,
-        { webhook: hook },
-        {
-          headers: {
-            'X-Shopify-Access-Token': accessToken,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
+      await axios.post(`https://${shop}/admin/api/2024-01/webhooks.json`, { webhook: hook }, {
+        headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' }
+      });
       console.log(`✅ Registered webhook: ${hook.topic}`);
     } catch (error) {
-      // existing behavior: if already exists, skip
       if (error.response?.data?.errors?.address) {
         console.log(`ℹ️ Webhook already exists: ${hook.topic}`);
       } else {
-        console.error(`❌ Failed to register webhook ${hook.topic}:`, error.message);
+        console.error(`❌ Failed to register webhook ${hook.topic}:`, error.message || error);
       }
     }
   }
 };
 
-
-// @desc    Handle Shopify product webhooks
-// @route   POST /api/shopify/webhooks/products
-// @access  Public (with verification)
+// Webhook handlers
 export const handleProductWebhook = async (req, res) => {
   try {
     const hmac = req.headers['x-shopify-hmac-sha256'];
@@ -489,7 +414,6 @@ export const handleProductWebhook = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid webhook' });
     }
 
-    // Find user by shop BEFORE using user._id
     const user = await User.findOne({ 'shopifyData.shopDomain': shop });
     if (!user) {
       console.log(`⚠️ No user found for shop: ${shop}`);
@@ -498,26 +422,13 @@ export const handleProductWebhook = async (req, res) => {
 
     const product = JSON.parse(rawBodyBuffer.toString('utf8'));
     if (topic === 'products/delete') {
-      // Remove product
-      await ProductKnowledge.updateOne(
-        { user: user._id },
-        { $pull: { products: { productId: product.id.toString() } } }
-      );
+      await ProductKnowledge.updateOne({ user: user._id }, { $pull: { products: { productId: product.id.toString() } } });
       console.log(`🗑️ Product deleted: ${product.id}`);
-
     } else {
-      // Update or create product
       let knowledge = await ProductKnowledge.findOne({ user: user._id });
-
       if (!knowledge) {
-        knowledge = await ProductKnowledge.create({
-          user: user._id,
-          products: [],
-          faqs: [],
-          customResponses: []
-        });
+        knowledge = await ProductKnowledge.create({ user: user._id, products: [], faqs: [], customResponses: [] });
       }
-
       const productData = {
         productId: product.id.toString(),
         name: product.title,
@@ -528,17 +439,10 @@ export const handleProductWebhook = async (req, res) => {
         url: `https://${shop}/products/${product.handle}`,
         imageUrl: product.images[0]?.src || '',
         stock: product.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0),
-        metadata: {
-          shopifyId: product.id,
-          vendor: product.vendor,
-          variants: product.variants.length
-        }
+        metadata: { shopifyId: product.id, vendor: product.vendor, variants: product.variants.length }
       };
 
-      const existingIndex = knowledge.products.findIndex(
-        p => p.productId === product.id.toString()
-      );
-
+      const existingIndex = knowledge.products.findIndex(p => p.productId === product.id.toString());
       if (existingIndex >= 0) {
         knowledge.products[existingIndex] = productData;
         console.log(`📝 Product updated: ${product.title}`);
@@ -554,106 +458,11 @@ export const handleProductWebhook = async (req, res) => {
     res.status(200).json({ success: true });
 
   } catch (error) {
-    console.error('❌ Webhook error:', error);
+    console.error('❌ Webhook error:', error?.message || error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Manual sync products
-// @route   POST /api/shopify/sync
-// @access  Private
-export const manualSync = async (req, res) => {
-  try {
-    console.log("\n===============================");
-    console.log("🛠️  Manual Shopify Sync Started");
-    console.log("⏳ Time:", new Date().toISOString());
-    console.log("👤 User ID:", req.user?._id);
-    console.log("===============================\n");
-
-    const user = await User.findById(req.user._id).select('+shopifyData.accessToken');
-    console.log("👤 Fetched User for Sync:", user ? user.email : "Not Found");
-    console.log("📦 User Plan:", user?.planName || user?.shopifyData?.planName);
-    console.log("🔗 shopifyData present:", !!user?.shopifyData);
-
-    if (user?.shopifyData) {
-      console.log("🔑 AccessToken present:", !!user.shopifyData.accessToken);
-      console.log("🏪 Shop Domain:", user.shopifyData.shopDomain);
-    }
-
-    if (!user.shopifyData || !user.shopifyData.accessToken) {
-      console.log("❌ Shopify NOT connected for this user");
-      return res.status(400).json({
-        success: false,
-        message: 'Shopify not connected. Please install the Shopify app first.'
-      });
-    }
-
-    console.log("🔗 Shopify Connected:", user.shopifyData.shopDomain);
-    console.log("🔐 Access Token Found: YES");
-
-    const count = await syncShopifyProducts(
-      user._id,
-      user.shopifyData.shopDomain,
-      user.shopifyData.accessToken
-    );
-
-    console.log("\n===============================");
-    console.log("✅ Shopify Sync Successful!");
-    console.log("📦 Total Products Synced:", count);
-    console.log("👤 User:", user.email);
-    console.log("⏰ Completed at:", new Date().toISOString());
-    console.log("===============================\n");
-
-    res.status(200).json({
-      success: true,
-      message: `Successfully synced ${count} products`,
-      data: { productsCount: count }
-    });
-
-  } catch (error) {
-    console.log("\n===============================");
-    console.log("❌ Shopify Sync FAILED!");
-    console.log("🔥 Error:", error.message);
-    console.log("⏰ Time:", new Date().toISOString());
-    console.log("===============================\n");
-
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-
-// @desc    Get Shopify connection status
-// @route   GET /api/shopify/status
-// @access  Private
-export const getShopifyStatus = async (req, res) => {
-  try {
-    const user = await User.findById(req.user._id);
-
-    const isConnected = !!(user.shopifyData && user.shopifyData.shopDomain);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        isConnected,
-        shop: user.shopifyData?.shopDomain || null,
-        installedAt: user.shopifyData?.installedAt || null,
-        planName: user.shopifyData?.planName || null
-      }
-    });
-
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-
-// controllers/shopifyController.js (add before export default)
 export const handleCustomersDataRequest = async (req, res) => {
   try {
     const hmac = req.headers['x-shopify-hmac-sha256'];
@@ -662,8 +471,6 @@ export const handleCustomersDataRequest = async (req, res) => {
 
     const payload = JSON.parse(raw.toString('utf8'));
     console.log('📩 customers/data_request received for', payload.id || payload.customer?.email);
-
-    // In a real system you would enqueue data export for the merchant/customer here.
     return res.status(200).json({ success: true });
   } catch (err) {
     console.error('❌ customers/data_request error', err);
@@ -725,8 +532,7 @@ export const handleShopRedact = async (req, res) => {
   }
 };
 
-
-// add this at the end of controllers/shopifyController.js
+// Export default
 export default {
   getInstallUrl,
   shopifyCallback,
@@ -734,8 +540,86 @@ export default {
   handleCustomersDataRequest,
   handleCustomersRedact,
   handleShopRedact,
-  manualSync,
-  getShopifyStatus,
+  manualSync: undefined, // manualSync defined below (export separately)
+  getShopifyStatus: undefined,
   syncShopifyProducts,
   registerShopifyWebhooks
+};
+
+// Note: manualSync and getShopifyStatus are defined later to keep file organized
+// ----------------- manualSync and getShopifyStatus -----------------
+export const manualSync = async (req, res) => {
+  try {
+    console.log("\n===============================");
+    console.log("🛠️  Manual Shopify Sync Started");
+    console.log("⏳ Time:", new Date().toISOString());
+    console.log("👤 req.user from auth middleware:", req.user ? { id: req.user._id, email: req.user.email } : 'no req.user');
+    console.log("===============================\n");
+
+    // Explicitly select nested shopifyData.accessToken (in case schema uses select:false)
+    let user = await User.findById(req.user?._id).select('+shopifyData +shopifyData.accessToken').lean();
+
+    // Fallback: try finding by store in body/query
+    if (!user && req.body?.shop) {
+      user = await User.findOne({ 'shopifyData.shopDomain': req.body.shop }).select('+shopifyData +shopifyData.accessToken').lean();
+      console.log('🔎 Fallback user lookup by shop returned:', !!user);
+    }
+
+    console.log("👤 Fetched User for Sync:", user ? user.email : "Not Found");
+    console.log("🔗 shopifyData present:", !!user?.shopifyData);
+    console.log("🔑 AccessToken present:", !!user?.shopifyData?.accessToken);
+
+    if (!user?.shopifyData?.accessToken) {
+      console.log("❌ Shopify NOT connected for this user");
+      return res.status(400).json({
+        success: false,
+        message: 'Shopify not connected. Please install the Shopify app first or verify the stored access token.'
+      });
+    }
+
+    const count = await syncShopifyProducts(user._id, user.shopifyData.shopDomain, user.shopifyData.accessToken);
+
+    console.log("\n===============================");
+    console.log("✅ Shopify Sync Successful!");
+    console.log("📦 Total Products Synced:", count);
+    console.log("👤 User:", user.email);
+    console.log("⏰ Completed at:", new Date().toISOString());
+    console.log("===============================\n");
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully synced ${count} products`,
+      data: { productsCount: count }
+    });
+
+  } catch (error) {
+    console.log("\n===============================");
+    console.log("❌ Shopify Sync FAILED!");
+    console.log("🔥 Error:", error.message || error);
+    console.log("⏰ Time:", new Date().toISOString());
+    console.log("===============================\n");
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const getShopifyStatus = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    const isConnected = !!(user.shopifyData && user.shopifyData.shopDomain);
+    res.status(200).json({
+      success: true,
+      data: {
+        isConnected,
+        shop: user.shopifyData?.shopDomain || null,
+        installedAt: user.shopifyData?.installedAt || null,
+        planName: user.shopifyData?.planName || null
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
