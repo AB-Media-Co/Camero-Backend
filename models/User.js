@@ -141,7 +141,14 @@ const userSchema = new mongoose.Schema(
       id: { type: String, required: true },
       connectedAt: { type: Date, default: Date.now },
       config: { type: Map, of: String }
-    }]
+    }],
+    shopifyData: {
+      shopDomain: { type: String },
+      accessToken: { type: String, select: false },
+      shopId: { type: String },
+      planName: { type: String },
+      installedAt: { type: Date }
+    }
   },
   {
     timestamps: true
