@@ -103,45 +103,45 @@ export const shopifyCallback = async (req, res) => {
     const { code, hmac, shop, state } = req.query;
 
     console.log('🔔 Shopify callback hit for shop:', shop);
-    console.log('🔎 HMAC (masked):', hmac ? mask(hmac) : 'none');
-    console.log('🔎 State from query (masked):', state ? mask(state) : 'none');
+    console.log('🔎 HMAC (masked):', hmac ? `${hmac.slice(0, 8)}...` : 'none');
+    console.log('🔎 State (masked):', state ? `${state.slice(0, 8)}...` : 'none');
 
-    // Verify HMAC
+    // 1) Verify HMAC (uses raw query / canonical fallback inside verifyShopifyHMAC)
     if (!verifyShopifyHMAC(req, hmac)) {
       console.warn('❌ HMAC verification failed. rawQuery (start):', (req.originalUrl || '').slice(0, 300));
       return res.status(401).send('Invalid HMAC - Authentication failed');
     }
 
-    // Verify state (nonce)
+    // 2) Verify state (nonce) from cookie
     const cookieState = req.cookies?.shopify_oauth_state;
     if (!state || !cookieState || state !== cookieState) {
-      console.warn('❌ Invalid or missing state. cookie:', cookieState ? mask(cookieState) : 'none');
+      console.warn('❌ Invalid or missing state (nonce). cookie (masked):', cookieState ? `${cookieState.slice(0, 8)}...` : 'none');
       return res.status(401).send('Invalid state parameter');
     }
-    // Clear cookie
+    // Clear nonce cookie
     res.clearCookie('shopify_oauth_state');
 
-    // Exchange code for access token
+    // 3) Exchange code for access token
     const tokenResponse = await axios.post(`https://${shop}/admin/oauth/access_token`, {
       client_id: config.shopifyApiKey,
       client_secret: config.shopifyApiSecret,
       code
     });
 
-    const { access_token } = tokenResponse.data;
+    const { access_token } = tokenResponse.data || {};
     if (!access_token) {
-      console.error('❌ No access_token returned from Shopify');
-      return res.status(500).send('No access token');
+      console.error('❌ No access_token returned from Shopify:', tokenResponse.data);
+      return res.status(500).send('No access token returned from Shopify');
     }
-    console.log('🔐 Received access token (masked):', mask(access_token));
+    console.log('🔐 Received access token (masked):', `${access_token.slice(0, 8)}...`);
 
-    // Get shop info
+    // 4) Fetch shop info to get shop email / id / plan
     const shopInfoResponse = await axios.get(`https://${shop}/admin/api/2024-01/shop.json`, {
       headers: { 'X-Shopify-Access-Token': access_token }
     });
-    const shopData = shopInfoResponse.data.shop;
+    const shopData = shopInfoResponse.data?.shop || {};
 
-    // default plan find/create (unchanged)
+    // 5) Ensure a default plan exists (same logic you had)
     let defaultPlan = await Plan.findOne({
       isActive: true,
       $or: [{ name: { $regex: /free|trial|shopify/i } }, { price: 0 }]
@@ -155,7 +155,13 @@ export const shopifyCallback = async (req, res) => {
         duration: 3650,
         maxProducts: 500,
         maxChats: 1000,
-        features: { chatbot: { enabled: true }, analytics: { enabled: true }, customization: { enabled: true }, support: { enabled: false }, training: { enabled: true } },
+        features: {
+          chatbot: { enabled: true },
+          analytics: { enabled: true },
+          customization: { enabled: true },
+          support: { enabled: false },
+          training: { enabled: true }
+        },
         isActive: true
       });
     }
@@ -163,142 +169,112 @@ export const shopifyCallback = async (req, res) => {
     const planExpiryDate = new Date();
     planExpiryDate.setDate(planExpiryDate.getDate() + defaultPlan.duration);
 
-    // Create or update user
-    let user = await User.findOne({ email: shopData.email });
+    // 6) Upsert user record to guarantee token is stored
+    const filter = {
+      $or: [
+        { 'shopifyData.shopDomain': shop },
+        { email: shopData.email }
+      ]
+    };
 
-    if (!user) {
-      const randomPassword = crypto.randomBytes(32).toString('hex');
+    const now = new Date();
+    const randomPassword = crypto.randomBytes(32).toString('hex');
 
-      user = await User.create({
-        name: shopData.shop_owner || shopData.name,
-        email: shopData.email,
-        password: randomPassword,
-        role: ROLES.CLIENT,
+    const update = {
+      $set: {
+        name: shopData.shop_owner || shopData.name || `Shop ${shop}`,
+        email: shopData.email || `unknown+${shop}@example.com`,
         storeUrl: `https://${shop}`,
         plan: defaultPlan._id,
         planExpiry: planExpiryDate,
         planStatus: PLAN_STATUS.ACTIVE,
         isActive: true,
-        shopifyData: {
-          shopDomain: shop,
-          accessToken: access_token,
-          shopId: shopData.id.toString(),
-          planName: shopData.plan_name,
-          installedAt: new Date()
-        },
+        'shopifyData.shopDomain': shop,
+        'shopifyData.accessToken': access_token,
+        'shopifyData.shopId': shopData.id?.toString?.() || String(shopData.id || ''),
+        'shopifyData.planName': shopData.plan_name || null,
+        'shopifyData.installedAt': now
+      },
+      $setOnInsert: {
+        password: randomPassword,
+        role: ROLES.CLIENT,
+        createdAt: now,
         assistantConfig: {
-          name: `${shopData.name} Assistant`,
+          name: `${shopData.name || shop} Assistant`,
           personality: 'professional',
           interfaceColor: '#17876E',
           avatar: 'avatar-1.png'
         }
-      });
-
-      // Create API key (unchanged)
-      const apiKey = await ApiKey.create({
-        user: user._id,
-        key: ApiKey.generateKey(),
-        name: 'Shopify Widget Key',
-        provider: 'openai',
-        providerApiKey: config.defaultOpenAIKey || '',
-        widgetSettings: {
-          enabled: true,
-          allowedDomains: [shop],
-          position: 'bottom-right'
-        }
-      });
-
-      console.log('✅ New Shopify user created:', user.email);
-      console.log('✅ API Key created (masked):', mask(apiKey.key || ''));
-    } else {
-      console.log('🔄 Updating existing user:', user.email);
-      user.shopifyData = {
-        shopDomain: shop,
-        accessToken: access_token,
-        shopId: shopData.id.toString(),
-        planName: shopData.plan_name,
-        installedAt: new Date()
-      };
-      user.storeUrl = `https://${shop}`;
-
-      try {
-        await user.save();
-        console.log('✅ User saved. UpdatedAt:', user.updatedAt || new Date().toISOString());
-      } catch (saveErr) {
-        console.error('❌ Failed to save user.shopifyData:', saveErr);
-        return res.status(500).send('Failed to save user data');
       }
-    }
+    };
 
-    // Re-load user to ensure shopifyData.accessToken is present (force select in case schema hides it)
+    const opts = { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true };
+
+    let savedUser;
     try {
-      const reloaded = await User.findOne({ email: shopData.email }).select('+shopifyData +shopifyData.accessToken').lean();
-      if (reloaded) user = reloaded;
+      savedUser = await User.findOneAndUpdate(filter, update, opts).exec();
     } catch (e) {
-      console.warn('Could not re-fetch user with explicit select:', e?.message || e);
+      console.error('❌ Error upserting user:', e);
+      return res.status(500).send('Failed to save user');
     }
 
-    console.log('🔁 Post-save user (shopifyData present?):', !!(user && user.shopifyData));
-    console.log('🔍 shopDomain:', user?.shopifyData?.shopDomain || 'none');
-    console.log('🔐 accessToken (masked):', user?.shopifyData?.accessToken ? mask(user.shopifyData.accessToken) : 'NONE');
+    if (!savedUser) {
+      console.error('❌ Upsert did not return saved user (unexpected)');
+      return res.status(500).send('Failed to save user');
+    }
 
-    const tokenToUse = (user && user.shopifyData && user.shopifyData.accessToken) ? user.shopifyData.accessToken : access_token;
+    // 7) Ensure an API key exists
+    try {
+      const existingApiKey = await ApiKey.findOne({ user: savedUser._id }).lean();
+      if (!existingApiKey) {
+        const newKey = await ApiKey.create({
+          user: savedUser._id,
+          key: ApiKey.generateKey(),
+          name: 'Shopify Widget Key',
+          provider: 'openai',
+          providerApiKey: config.defaultOpenAIKey || '',
+          widgetSettings: { enabled: true, allowedDomains: [shop], position: 'bottom-right' }
+        });
+        console.log('✅ API Key created (masked):', newKey.key ? `${newKey.key.slice(0, 8)}...` : 'none');
+      } else {
+        console.log('ℹ️ API Key already exists (masked):', existingApiKey.key ? `${existingApiKey.key.slice(0, 8)}...` : 'found');
+      }
+    } catch (e) {
+      console.warn('⚠️ API Key creation check failed:', e?.message || e);
+    }
 
-    // Sync products + register webhooks (same functions as before)
-    await syncShopifyProducts(user._id, shop, tokenToUse);
+    // 8) Log and proceed
+    console.log('🔁 Upserted user id:', savedUser._id?.toString?.());
+    console.log('🔍 shopifyData present:', !!savedUser.shopifyData);
+    console.log('🔐 accessToken (masked):', savedUser.shopifyData?.accessToken ? `${savedUser.shopifyData.accessToken.slice(0, 8)}...` : 'NONE');
+
+    // 9) Use the saved token (prefer persisted token)
+    const tokenToUse = savedUser?.shopifyData?.accessToken || access_token;
+
+    // 10) Sync products and register webhooks (both await - will throw if fails)
+    await syncShopifyProducts(savedUser._id, shop, tokenToUse);
     await registerShopifyWebhooks(shop, tokenToUse);
 
-    // Log activity & respond with your success HTML (you can keep your original HTML)
+    // 11) Log activity
     await UserActivity.create({
-      user: user._id,
+      user: savedUser._id,
       action: 'shopify_app_installed',
-      details: { shop: shop, planName: shopData.plan_name }
+      details: { shop, planName: shopData.plan_name }
     });
 
-    // Return success page (you can reuse your existing success HTML)
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Shopify App Installed Successfully</title>
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); }
-          .container { background:white; padding:3rem; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.2); max-width:600px; text-align:center; }
-          h1 { color:#10b981; margin-bottom:1rem; }
-          .success-icon { font-size:64px; margin-bottom:1rem; }
-          .info { background:#f3f4f6; padding:1.5rem; border-radius:8px; margin:2rem 0; text-align:left; }
-          code { background:#1e1e1e; color:#d4d4d4; padding:1rem; border-radius:6px; display:block; margin-top:1rem; font-size:12px; overflow-x:auto; }
-          .button { display:inline-block; background:#667eea; color:white; padding:12px 24px; border-radius:6px; text-decoration:none; margin-top:1rem; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="success-icon">✅</div>
-          <h1>App Installed Successfully!</h1>
-          <p>Your AI Chat Widget is now ready to use.</p>
-          <div class="info">
-            <h3>Next Steps:</h3>
-            <ol style="text-align:left;">
-              <li>We've automatically synced ${await ProductKnowledge.findOne({ user: user._id }).then(k => k?.products?.length || 0)} products from your store</li>
-              <li>Your widget is now live on your store</li>
-              <li>Login to your dashboard to customize it</li>
-            </ol>
-          </div>
-          <div class="info">
-            <h3>Your Login Credentials:</h3>
-            <p><strong>Email:</strong> ${user.email}</p>
-            <p><strong>Dashboard:</strong> <a href="${config.frontendUrl}/login">${config.frontendUrl}</a></p>
-            <p style="font-size:12px; color:#6b7280; margin-top:1rem;">Check your email for password reset link</p>
-          </div>
-          <a href="${config.frontendUrl}/login" class="button">Go to Dashboard</a>
-        </div>
-      </body>
-      </html>
+    // 12) Respond with success page (you can keep your existing HTML)
+    // Minimal success response (replace with your fancy HTML if you want)
+    return res.send(`
+      <!DOCTYPE html><html><body style="font-family: sans-serif; text-align:center; padding:2rem;">
+        <h1 style="color: #10b981">App Installed Successfully!</h1>
+        <p>Your store <strong>${shop}</strong> is now connected.</p>
+        <p><a href="${config.frontendUrl}/login">Go to Dashboard</a></p>
+      </body></html>
     `);
 
   } catch (error) {
     console.error('❌ Shopify callback error:', error?.message || error);
-    res.status(500).send(`
+    return res.status(500).send(`
       <!DOCTYPE html><html><body style="font-family: sans-serif; text-align:center; padding:2rem;">
         <h1 style="color:#ef4444;">Installation Failed</h1>
         <p>${error?.message || 'unknown error'}</p>
@@ -307,6 +283,7 @@ export const shopifyCallback = async (req, res) => {
     `);
   }
 };
+
 
 // ----------------- Sync products, register webhooks, and webhook handlers (unchanged logic) -----------------
 const syncShopifyProducts = async (userId, shopDomain, accessToken) => {
