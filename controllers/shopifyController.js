@@ -563,6 +563,7 @@ export const manualSync = async (req, res) => {
     console.log("===============================\n");
 
     const user = await User.findById(req.user._id).select('+shopifyData.accessToken');
+    console.log(user, "users")
 
     if (!user.shopifyData || !user.shopifyData.accessToken) {
       console.log("❌ Shopify NOT connected for this user");
