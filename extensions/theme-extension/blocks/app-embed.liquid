@@ -1,0 +1,15 @@
+{% schema %}
+{
+  "name": "Chat Widget",
+  "target": "body",
+  "settings": []
+}
+{% endschema %}
+
+<script>
+  window.CAMERO_CONFIG = {
+    shopDomain: "{{ shop.permanent_domain }}",
+    backendUrl: "https://camero.myabmedia.com"
+  };
+</script>
+<script src="https://camero.myabmedia.com/widget.js" defer="defer"></script>
