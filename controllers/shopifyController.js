@@ -218,6 +218,13 @@ export const shopifyCallback = async (req, res) => {
 
     } else {
       // Update existing user
+      console.log('🔄 Updating existing user:', user.email);
+      console.log('📝 New Shopify Data to save:', {
+        shopDomain: shop,
+        hasToken: !!access_token,
+        shopId: shopData.id.toString()
+      });
+
       user.shopifyData = {
         shopDomain: shop,
         accessToken: access_token,
@@ -226,9 +233,10 @@ export const shopifyCallback = async (req, res) => {
         installedAt: new Date()
       };
       user.storeUrl = `https://${shop}`;
-      await user.save();
 
-      console.log('✅ Existing user updated:', user.email);
+      const savedUser = await user.save();
+      console.log('✅ User saved. UpdatedAt:', savedUser.updatedAt);
+      console.log('🔍 Saved ShopifyData:', savedUser.shopifyData); // Check if it's in the returned doc
     }
 
     // Sync products
