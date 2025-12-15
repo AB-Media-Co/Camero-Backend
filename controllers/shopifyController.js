@@ -408,6 +408,7 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
       products = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/products.json`, accessToken);
       console.log(`📦 Fetched ${products.length} products`);
     } catch (e) {
+      if (e.response?.status === 401) throw e; // Rethrow 401 to trigger re-auth
       console.error("❌ Failed to fetch products:", e.message);
     }
 
@@ -416,8 +417,8 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
       customers = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/customers.json`, accessToken);
       console.log(`👥 Fetched ${customers.length} customers`);
     } catch (e) {
+      if (e.response?.status === 401) throw e; // Rethrow 401
       console.warn("⚠️ Customer sync skipped (likely 403/Permissions):", e.message);
-      // Continue without customers
     }
 
     // 3. Fetch Orders safely
@@ -425,6 +426,7 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
       orders = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/orders.json?status=any`, accessToken);
       console.log(`🛒 Fetched ${orders.length} orders`);
     } catch (e) {
+      if (e.response?.status === 401) throw e; // Rethrow 401
       console.warn("⚠️ Order sync skipped (likely 403/Permissions):", e.message);
     }
 
