@@ -2,7 +2,7 @@
   'use strict';
   const isLocalhost = ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname);
   const WIDGET_API = isLocalhost
-    ? 'http://localhost:5000/api/widget'
+    ? 'http://localhost:4000/api/widget'
     : 'https://camero.myabmedia.com/api/widget';
 
   const TRANSLATIONS = {

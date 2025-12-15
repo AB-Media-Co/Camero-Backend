@@ -778,29 +778,7 @@ export const sendMessage = async (req, res) => {
       maxTokens: 500
     });
 
-    // 8. SAVE BOT RESPONSE (only if not playground)
-    if (!isPlayground && conversationDoc) {
-      conversationDoc.conversation.push({
-        role: 'bot',
-        message: aiResponse.message,
-        last_message_at: new Date(),
-        tokens: aiResponse.tokens || 0
-      });
-
-      // Final Save
-      await conversationDoc.save();
-      console.log('✅ Bot response saved to DB');
-
-      // 9. Update Usage (only for non-playground)
-      apiKey.usage = apiKey.usage || { totalRequests: 0, totalTokens: 0 };
-      apiKey.usage.totalRequests += 1;
-      apiKey.usage.totalTokens += (aiResponse.tokens || 0);
-      await apiKey.save();
-    } else {
-      console.log('🚫 Playground chat - not saving to DB');
-    }
-
-    // 10. Check if we should include products in response
+    // 10. Check if we should include products in response (Calculated BEFORE saving)
     let productsToShow = [];
     if (isProductQuery(message) && knowledge?.products?.length > 0) {
       const lowerMsg = message.toLowerCase();
@@ -833,6 +811,39 @@ export const sendMessage = async (req, res) => {
         description: item.product.description || ''
       }));
     }
+
+    // 8. SAVE BOT RESPONSE (only if not playground)
+    if (!isPlayground && conversationDoc) {
+      let finalMessageToSave = aiResponse.message;
+
+      // Append products tag if present
+      if (productsToShow.length > 0) {
+        finalMessageToSave += `\n[PRODUCTS]${JSON.stringify(productsToShow)}[/PRODUCTS]`;
+      }
+
+      conversationDoc.conversation.push({
+        role: 'bot',
+        message: finalMessageToSave,
+        last_message_at: new Date(),
+        tokens: aiResponse.tokens || 0
+      });
+
+      // Final Save
+      await conversationDoc.save();
+      console.log('✅ Bot response saved to DB (with products if any)');
+
+      // 9. Update Usage (only for non-playground)
+      apiKey.usage = apiKey.usage || { totalRequests: 0, totalTokens: 0 };
+      apiKey.usage.totalRequests += 1;
+      apiKey.usage.totalTokens += (aiResponse.tokens || 0);
+      await apiKey.save();
+    } else {
+      console.log('🚫 Playground chat - not saving to DB');
+    }
+
+    // 10. Products already calculated above
+    // productsToShow is available in scope
+
 
     return res.status(200).json({
       success: true,
