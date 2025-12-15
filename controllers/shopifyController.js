@@ -551,7 +551,9 @@ export const manualSync = async (req, res) => {
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: error.message });
+    // If the error has a response status (like 401 from Shopify), pass it through.
+    const statusCode = error.response?.status || 500;
+    res.status(statusCode).json({ success: false, message: error.message });
   }
 };
 
