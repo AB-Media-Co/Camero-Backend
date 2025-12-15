@@ -694,21 +694,6 @@ export const handleShopRedact = async (req, res) => {
   }
 };
 
-// Export default
-export default {
-  getInstallUrl,
-  shopifyCallback,
-  handleProductWebhook,
-  handleCustomersDataRequest,
-  handleCustomersRedact,
-  handleShopRedact,
-  manualSync,
-  getShopifyStatus,
-  registerShopifyWebhooks
-};
-
-// Note: manualSync and getShopifyStatus are defined later to keep file organized
-// ----------------- manualSync and getShopifyStatus -----------------
 // ----------------- getShopifyStatus -----------------
 // manualSync moved up
 
@@ -729,4 +714,17 @@ export const getShopifyStatus = async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+// Export default
+export default {
+  getInstallUrl,
+  shopifyCallback,
+  handleProductWebhook,
+  handleCustomersDataRequest,
+  handleCustomersRedact,
+  handleShopRedact,
+  manualSync,
+  getShopifyStatus,
+  registerShopifyWebhooks
 };
