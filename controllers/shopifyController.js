@@ -306,7 +306,7 @@ export const shopifyCallback = async (req, res) => {
       <!DOCTYPE html><html><body style="font-family: sans-serif; text-align:center; padding:2rem;">
         <h1 style="color: #10b981">App Installed Successfully!</h1>
         <p>Your store <strong>${shop}</strong> is now connected.</p>
-        <p><a href="${config.frontendUrl}/login">Go to Dashboard</a></p>
+        <p><a href="${config.clientUrl}/login">Go to Dashboard</a></p>
       </body></html>
     `);
 
