@@ -153,7 +153,7 @@ export const trainFromWebsite = async (req, res) => {
       maxPages: effectiveMaxPages,
       timeoutMs,
     });
-    
+
 
     const successSnapshots = snapshots.filter((item) => item.status === 'success');
     const successCount = successSnapshots.length;
@@ -180,7 +180,7 @@ export const trainFromWebsite = async (req, res) => {
       userId: req.user._id,
       snapshots: successSnapshots,
     });
-    
+
 
     res.status(200).json({
       success: true,
@@ -210,17 +210,17 @@ export const checkTrainingStatus = async (req, res) => {
     });
 
     const isTrained = embeddingCount > 0;
-    
+
     // Check if training is in progress by looking at ProductKnowledge
     let progress = 0;
     let trainingInProgress = false;
-    
+
     const knowledge = await ProductKnowledge.findOne({ user: req.user._id });
-    
+
     if (knowledge && knowledge.webSnapshots && knowledge.webSnapshots.length > 0) {
       const successSnapshots = knowledge.webSnapshots.filter(s => s.status === 'success');
       const totalSnapshots = knowledge.webSnapshots.length;
-      
+
       // If we have snapshots but no embeddings yet, training is in progress
       if (successSnapshots.length > 0 && embeddingCount === 0) {
         trainingInProgress = true;
@@ -254,7 +254,33 @@ export const checkTrainingStatus = async (req, res) => {
   }
 };
 
+    });
+  } catch (error) {
+  console.error('Training status check error:', error);
+  res.status(500).json({
+    success: false,
+    message: error.message || 'Failed to check training status'
+  });
+}
+};
+
+export const getTrainingData = async (req, res) => {
+  try {
+    const knowledge = await ProductKnowledge.findOne({ user: req.user._id });
+    res.status(200).json({
+      success: true,
+      data: {
+        products: knowledge?.products || [],
+        lastSynced: knowledge?.lastSynced
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export default {
   trainFromWebsite,
-  checkTrainingStatus
+  checkTrainingStatus,
+  getTrainingData
 };
