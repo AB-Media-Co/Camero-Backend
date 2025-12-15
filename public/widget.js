@@ -218,6 +218,8 @@
           transition: background 0.2s; 
         }
         .product-card-btn:hover { background: #14725d; }
+        .product-card-btn-secondary { background: transparent; color: #17876E; border: 1px solid #17876E; }
+        .product-card-btn-secondary:hover { background: #f0fdf4; color: #14725d; }
         
         /* No image placeholder */
         .product-img-placeholder { 
@@ -336,7 +338,12 @@
           : '';
 
         const btnHtml = product.url
-          ? `<a href="${product.url}" target="_blank" class="product-card-btn">View Details →</a>`
+          ? `<div style="display:flex; gap:8px; margin-top:auto;">
+               <a href="${product.url}" target="_blank" class="product-card-btn" style="flex:1;">View</a>
+               ${product.defaultVariantId
+            ? `<button onclick="window.location.href='/cart/${product.defaultVariantId}:1'" class="product-card-btn product-card-btn-secondary" style="flex:1;">Add</button>`
+            : ''}
+             </div>`
           : '';
 
         return `

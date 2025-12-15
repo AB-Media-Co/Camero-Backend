@@ -499,6 +499,7 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
       imageUrl: p.images?.[0]?.src || '',
       stock: p.variants?.reduce((acc, v) => acc + (v.inventory_quantity || 0), 0) || 0,
       url: `https://${shopDomain}/products/${p.handle}`,
+      defaultVariantId: p.variants?.[0]?.id,
       metadata: { vendor: p.vendor }
     }));
 
