@@ -531,8 +531,13 @@ export const manualSync = async (req, res) => {
     let user = await User.findById(req.user?._id).select('+shopifyData +shopifyData.accessToken').lean();
 
     if (!user || !user.shopifyData?.accessToken) {
+      console.log('❌ User or Token missing in manualSync');
       return res.status(400).json({ success: false, message: 'Shopify not connected.' });
     }
+
+    console.log(`🔍 manualSync: Found ID: ${user._id}`);
+    console.log(`🔍 manualSync: Shop: ${user.shopifyData.shopDomain}`);
+    console.log(`🔐 manualSync: Token prefix: ${user.shopifyData.accessToken.substring(0, 15)}...`);
 
     const counts = await syncShopifyData(user._id, user.shopifyData.shopDomain, user.shopifyData.accessToken);
 
