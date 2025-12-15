@@ -23,7 +23,9 @@ const userActivitySchema = new mongoose.Schema(
         'invitation_sent',
         'invitation_resent',
         'invitation_cancelled',
-        'invitation_accepted'
+        'invitation_accepted',
+        'shopify_app_installed',
+        'shopify_products_synced'
       ]
     },
     performedBy: {
