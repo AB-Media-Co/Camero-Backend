@@ -254,16 +254,6 @@ export const checkTrainingStatus = async (req, res) => {
   }
 };
 
-    });
-  } catch (error) {
-  console.error('Training status check error:', error);
-  res.status(500).json({
-    success: false,
-    message: error.message || 'Failed to check training status'
-  });
-}
-};
-
 export const getTrainingData = async (req, res) => {
   try {
     const knowledge = await ProductKnowledge.findOne({ user: req.user._id });
