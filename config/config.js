@@ -14,7 +14,7 @@ export const config = {
   backendUrl: process.env.BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://camero.myabmedia.com' : 'http://localhost:5000'),
   // ⭐ OpenAI - Make sure this exists
   defaultOpenAIKey: (process.env.DEFAULT_OPENAI_KEY || '').trim(),
-  shopifyApiSecret: process.env.SHOPIFY_API_SECRET || '',
+  shopifyApiSecret: process.env.SHOPIFY_API_SECRET || process.env.shopifyApiSecret || '',
   shopifyApiKey: process.env.SHOPIFY_API_KEY,          // from Dev Dashboard
 
 };

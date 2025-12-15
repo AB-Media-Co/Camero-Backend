@@ -179,6 +179,7 @@ httpServer.listen(PORT, () => {
 ║   🌍 Environment: ${config.nodeEnv}           ║
 ║   🔗 URL: http://localhost:${PORT}           ║
 ║   📚 Docs: http://localhost:${PORT}/api      ║
+║   🔐 Shopify Secret: ${config.shopifyApiSecret ? 'Loaded (' + config.shopifyApiSecret.length + ' chars)' : 'MISSING ❌'} ║
 ╚════════════════════════════════════════════╝
   `);
 });
