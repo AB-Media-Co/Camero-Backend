@@ -702,9 +702,8 @@ export default {
   handleCustomersDataRequest,
   handleCustomersRedact,
   handleShopRedact,
-  manualSync: undefined, // manualSync defined below (export separately)
-  getShopifyStatus: undefined,
-  syncShopifyProducts,
+  manualSync,
+  getShopifyStatus,
   registerShopifyWebhooks
 };
 
