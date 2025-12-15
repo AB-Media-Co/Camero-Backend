@@ -121,7 +121,7 @@ export const getInstallUrl = async (req, res) => {
     res.cookie('shopify_oauth_state', nonce, {
       httpOnly: true,
       sameSite: 'None',
-      secure: config.nodeEnv === 'production',
+      secure: true, // Must be true if sameSite='None', even in dev if on https or if browser requires it
       maxAge: 5 * 60 * 1000 // 5 minutes
     });
 
