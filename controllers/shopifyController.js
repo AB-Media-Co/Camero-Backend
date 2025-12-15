@@ -229,12 +229,12 @@ export const shopifyCallback = async (req, res) => {
     const now = new Date();
 
     // Define logic to find correct user
-    let user;
+    let savedUser;
     if (installUserId) {
-      user = await User.findById(installUserId);
+      savedUser = await User.findById(installUserId);
     }
-    if (!user) {
-      user = await User.findOne({
+    if (!savedUser) {
+      savedUser = await User.findOne({
         $or: [
           { 'shopifyData.shopDomain': shop },
           { email: shopData.email }
@@ -254,26 +254,26 @@ export const shopifyCallback = async (req, res) => {
       // Let's set default if missing.
     };
 
-    if (user) {
-      if (!user.plan) {
-        user.plan = defaultPlan._id;
-        user.planExpiry = planExpiryDate;
-        user.planStatus = PLAN_STATUS.ACTIVE;
+    if (savedUser) {
+      if (!savedUser.plan) {
+        savedUser.plan = defaultPlan._id;
+        savedUser.planExpiry = planExpiryDate;
+        savedUser.planStatus = PLAN_STATUS.ACTIVE;
       }
 
-      user.shopifyData = {
+      savedUser.shopifyData = {
         shopDomain: shop,
         accessToken: access_token,
         shopId: shopData.id?.toString?.() || String(shopData.id || ''),
         planName: shopData.plan_name || null,
         installedAt: now
       };
-      await user.save();
-      console.log(`✅ Linked Shopify to existing user: ${user._id}`);
+      await savedUser.save();
+      console.log(`✅ Linked Shopify to existing user: ${savedUser._id}`);
     } else {
       // Create new user if absolutely no match found
       const randomPassword = crypto.randomBytes(32).toString('hex');
-      user = await User.create({
+      savedUser = await User.create({
         name: shopData.shop_owner || shopData.name || `Shop ${shop}`,
         email: shopData.email || `unknown+${shop}@example.com`,
         storeUrl: `https://${shop}`,
@@ -297,10 +297,10 @@ export const shopifyCallback = async (req, res) => {
 
     // 7) Ensure an API key exists
     try {
-      const existingApiKey = await ApiKey.findOne({ user: user._id }).lean();
+      const existingApiKey = await ApiKey.findOne({ user: savedUser._id }).lean();
       if (!existingApiKey) {
         const newKey = await ApiKey.create({
-          user: user._id,
+          user: savedUser._id,
           key: ApiKey.generateKey(),
           name: 'Shopify Widget Key',
           provider: 'openai',
