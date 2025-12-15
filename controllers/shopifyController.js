@@ -401,17 +401,32 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
   try {
     console.log(`⏳ Starting full sync for ${shopDomain}...`);
 
-    // 1. Fetch Products
-    const products = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/products.json`, accessToken);
-    console.log(`📦 Fetched ${products.length} products`);
+    let products = [], customers = [], orders = [];
 
-    // 2. Fetch Customers
-    const customers = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/customers.json`, accessToken);
-    console.log(`👥 Fetched ${customers.length} customers`);
+    // 1. Fetch Products safely
+    try {
+      products = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/products.json`, accessToken);
+      console.log(`📦 Fetched ${products.length} products`);
+    } catch (e) {
+      console.error("❌ Failed to fetch products:", e.message);
+    }
 
-    // 3. Fetch Orders
-    const orders = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/orders.json?status=any`, accessToken);
-    console.log(`🛒 Fetched ${orders.length} orders`);
+    // 2. Fetch Customers safely (Handle 403 Forbidden)
+    try {
+      customers = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/customers.json`, accessToken);
+      console.log(`👥 Fetched ${customers.length} customers`);
+    } catch (e) {
+      console.warn("⚠️ Customer sync skipped (likely 403/Permissions):", e.message);
+      // Continue without customers
+    }
+
+    // 3. Fetch Orders safely
+    try {
+      orders = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/orders.json?status=any`, accessToken);
+      console.log(`🛒 Fetched ${orders.length} orders`);
+    } catch (e) {
+      console.warn("⚠️ Order sync skipped (likely 403/Permissions):", e.message);
+    }
 
     // 4. Transform Data
     const formattedProducts = products.map(p => ({
