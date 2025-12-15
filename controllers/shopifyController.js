@@ -127,7 +127,8 @@ export const getInstallUrl = async (req, res) => {
 
     const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${config.shopifyApiKey}&scope=${scopes}&redirect_uri=${redirectUri}&state=${nonce}`;
 
-    res.status(200).json({ success: true, data: { installUrl, nonce } });
+    // Directly redirect to Shopify (better UX for top-level navigation)
+    res.redirect(installUrl);
   } catch (error) {
     console.error('getInstallUrl error:', error);
     res.status(500).json({ success: false, message: error.message });
