@@ -40,13 +40,29 @@ export const protect = async (req, res, next) => {
 
     // 2️⃣ Try: Shopify session token (App Bridge)
     try {
+      // DEBUG LOGGING
+      if (token) {
+        try {
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            // It's a JWT
+            console.log('🔍 Auth Middleware: Attempting verify Shopify Token');
+            console.log(`🔑 Token Header: ${atob(parts[0])}`);
+            // console.log(`🔑 Token Payload: ${atob(parts[1])}`); // can be noisy
+            console.log(`🔐 Using Secret: ${config.shopifyApiSecret ? config.shopifyApiSecret.slice(0, 4) + '...' : 'MISSING'}`);
+          }
+        } catch (e) { /* ignore parse error for logging */ }
+      }
+
       const shopifyPayload = jwt.verify(token, config.shopifyApiSecret, {
         algorithms: ['HS256'],
       });
 
+      console.log('✅ Shopify Token Verified. Dest:', shopifyPayload.dest);
+
       // Extra safety checks (Shopify docs ke according)
       if (shopifyPayload.aud !== config.shopifyApiKey) {
-        throw new Error('Invalid audience for Shopify token');
+        throw new Error(`Invalid audience for Shopify token. Expected ${config.shopifyApiKey}, got ${shopifyPayload.aud}`);
       }
 
       // dest se shop domain nikaalo
@@ -66,9 +82,11 @@ export const protect = async (req, res, next) => {
       return next();
     } catch (err2) {
       console.error('Shopify session token verification failed:', err2.message);
+      // If signature is invalid, it means the secret didn't match the signature
       return res.status(401).json({
         success: false,
-        message: 'Not authorized to access this route',
+        message: 'Not authorized - Shopify Token Invalid',
+        debug: err2.message
       });
     }
   } catch (error) {
