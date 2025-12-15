@@ -107,9 +107,10 @@ export const verifyShopifyWebhook = (rawBodyBuffer, hmacHeader) => {
 };
 
 // ----------------- Install URL (set nonce cookie) -----------------
+// ----------------- Install URL (set nonce cookie) -----------------
 export const getInstallUrl = async (req, res) => {
   try {
-    const { shop } = req.query;
+    const { shop, userId } = req.query;
     if (!shop) {
       return res.status(400).json({ success: false, message: 'Shop parameter is required' });
     }
@@ -124,6 +125,16 @@ export const getInstallUrl = async (req, res) => {
       secure: true, // Must be true if sameSite='None', even in dev if on https or if browser requires it
       maxAge: 5 * 60 * 1000 // 5 minutes
     });
+
+    // Store the user who initiated the install
+    if (userId) {
+      res.cookie('shopify_install_user', userId, {
+        httpOnly: true,
+        sameSite: 'None',
+        secure: true,
+        maxAge: 5 * 60 * 1000
+      });
+    }
 
     const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${config.shopifyApiKey}&scope=${scopes}&redirect_uri=${redirectUri}&state=${nonce}`;
 
@@ -156,8 +167,13 @@ export const shopifyCallback = async (req, res) => {
       console.warn('❌ Invalid or missing state (nonce). cookie (masked):', cookieState ? `${cookieState.slice(0, 8)}...` : 'none');
       return res.status(401).send('Invalid state parameter');
     }
-    // Clear nonce cookie
+
+    // Retrieve initiating user
+    const installUserId = req.cookies?.shopify_install_user;
+
+    // Clear cookies
     res.clearCookie('shopify_oauth_state');
+    if (installUserId) res.clearCookie('shopify_install_user');
 
     // 3) Exchange code for access token
     const tokenResponse = await axios.post(`https://${shop}/admin/oauth/access_token`, {
@@ -208,45 +224,75 @@ export const shopifyCallback = async (req, res) => {
     planExpiryDate.setDate(planExpiryDate.getDate() + defaultPlan.duration);
 
     // 6) Upsert user record to guarantee token is stored
-    const filter = {
-      $or: [
-        { 'shopifyData.shopDomain': shop },
-        { email: shopData.email }
-      ]
+    // Priority: 1. User who initiated (installUserId), 2. Shop domain, 3. Shop email
+    const now = new Date();
+
+    // Define logic to find correct user
+    let user;
+    if (installUserId) {
+      user = await User.findById(installUserId);
+    }
+    if (!user) {
+      user = await User.findOne({
+        $or: [
+          { 'shopifyData.shopDomain': shop },
+          { email: shopData.email }
+        ]
+      });
+    }
+
+    const shopifyUpdateData = {
+      'shopifyData.shopDomain': shop,
+      'shopifyData.accessToken': access_token,
+      'shopifyData.shopId': shopData.id?.toString?.() || String(shopData.id || ''),
+      'shopifyData.planName': shopData.plan_name || null,
+      'shopifyData.installedAt': now,
+      isActive: true,
+      // Only set plan/expiry if user has none or if we want to enforce it? 
+      // Logic: if new user -> set default plan. If existing -> keep existing unless we want to force.
+      // Let's set default if missing.
     };
 
-    const now = new Date();
-    const randomPassword = crypto.randomBytes(32).toString('hex');
+    if (user) {
+      if (!user.plan) {
+        user.plan = defaultPlan._id;
+        user.planExpiry = planExpiryDate;
+        user.planStatus = PLAN_STATUS.ACTIVE;
+      }
 
-    const update = {
-      $set: {
+      user.shopifyData = {
+        shopDomain: shop,
+        accessToken: access_token,
+        shopId: shopData.id?.toString?.() || String(shopData.id || ''),
+        planName: shopData.plan_name || null,
+        installedAt: now
+      };
+      await user.save();
+      console.log(`✅ Linked Shopify to existing user: ${user._id}`);
+    } else {
+      // Create new user if absolutely no match found
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      user = await User.create({
         name: shopData.shop_owner || shopData.name || `Shop ${shop}`,
         email: shopData.email || `unknown+${shop}@example.com`,
         storeUrl: `https://${shop}`,
+        password: randomPassword,
+        role: ROLES.CLIENT,
         plan: defaultPlan._id,
         planExpiry: planExpiryDate,
         planStatus: PLAN_STATUS.ACTIVE,
         isActive: true,
-        'shopifyData.shopDomain': shop,
-        'shopifyData.accessToken': access_token,
-        'shopifyData.shopId': shopData.id?.toString?.() || String(shopData.id || ''),
-        'shopifyData.planName': shopData.plan_name || null,
-        'shopifyData.installedAt': now
-      },
-      $setOnInsert: {
-        password: randomPassword,
-        role: ROLES.CLIENT,
         createdAt: now,
         assistantConfig: {
           name: `${shopData.name || shop} Assistant`,
           personality: 'professional',
           interfaceColor: '#17876E',
           avatar: 'avatar-1.png'
-        }
-      }
-    };
-
-    const opts = { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true };
+        },
+        ...shopifyUpdateData
+      });
+      console.log(`✅ Created NEW user for shop: ${shop}`);
+    }
 
     let savedUser;
     try {
