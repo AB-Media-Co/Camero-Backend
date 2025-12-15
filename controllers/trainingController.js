@@ -1,5 +1,7 @@
 // controllers/trainingController.js
+import websiteCrawler from '../services/websiteCrawler.js'; // fixed default import if any check needed
 import ProductKnowledge from '../models/ProductKnowledge.js';
+import ShopifyData from '../models/ShopifyData.js';
 import { crawlWebsitePages } from '../services/websiteCrawler.js';
 import WebsiteEmbedding from '../models/WebsiteEmbedding.js';
 import { embedTexts, embedTextsBatched } from '../services/embeddingService.js';
@@ -256,12 +258,17 @@ export const checkTrainingStatus = async (req, res) => {
 
 export const getTrainingData = async (req, res) => {
   try {
+    // Fetch from the new ShopifyData model to get Customers and Orders too
+    const shopifyData = await ShopifyData.findOne({ user: req.user._id });
     const knowledge = await ProductKnowledge.findOne({ user: req.user._id });
+
     res.status(200).json({
       success: true,
       data: {
-        products: knowledge?.products || [],
-        lastSynced: knowledge?.lastSynced
+        products: shopifyData?.products || knowledge?.products || [],
+        customers: shopifyData?.customers || [],
+        orders: shopifyData?.orders || [],
+        lastSynced: shopifyData?.lastSyncedAt || knowledge?.lastSynced
       }
     });
   } catch (error) {
