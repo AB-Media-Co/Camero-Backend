@@ -294,25 +294,12 @@ export const shopifyCallback = async (req, res) => {
       console.log(`✅ Created NEW user for shop: ${shop}`);
     }
 
-    let savedUser;
-    try {
-      savedUser = await User.findOneAndUpdate(filter, update, opts).exec();
-    } catch (e) {
-      console.error('❌ Error upserting user:', e);
-      return res.status(500).send('Failed to save user');
-    }
-
-    if (!savedUser) {
-      console.error('❌ Upsert did not return saved user (unexpected)');
-      return res.status(500).send('Failed to save user');
-    }
-
     // 7) Ensure an API key exists
     try {
-      const existingApiKey = await ApiKey.findOne({ user: savedUser._id }).lean();
+      const existingApiKey = await ApiKey.findOne({ user: user._id }).lean();
       if (!existingApiKey) {
         const newKey = await ApiKey.create({
-          user: savedUser._id,
+          user: user._id,
           key: ApiKey.generateKey(),
           name: 'Shopify Widget Key',
           provider: 'openai',
