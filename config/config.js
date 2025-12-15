@@ -11,7 +11,7 @@ export const config = {
   emailUser: process.env.EMAIL_USER || 'your-email@gmail.com',
   emailPassword: process.env.EMAIL_PASSWORD || 'your-app-password',
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
-  backendUrl: process.env.BACKEND_URL || 'http://localhost:5000',
+  backendUrl: process.env.BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://camero.myabmedia.com' : 'http://localhost:5000'),
   // ⭐ OpenAI - Make sure this exists
   defaultOpenAIKey: (process.env.DEFAULT_OPENAI_KEY || '').trim(),
   shopifyApiSecret: process.env.shopifyApiSecret || '',
