@@ -9,6 +9,7 @@ import ProductKnowledge from '../models/ProductKnowledge.js';
 import UserActivity from '../models/UserActivity.js';
 import { ROLES, PLAN_STATUS } from '../utils/constants.js';
 import ChatConversation from '../models/ChatConversation.js';
+import ShopifyData from '../models/ShopifyData.js';
 
 // ----------------- Helper utilities -----------------
 const mask = (s, keep = 8) => s ? `${s.slice(0, keep)}...` : 'none';
@@ -357,65 +358,178 @@ export const shopifyCallback = async (req, res) => {
 
 
 // ----------------- Sync products, register webhooks, and webhook handlers (unchanged logic) -----------------
-const syncShopifyProducts = async (userId, shopDomain, accessToken) => {
-  try {
-    let allProducts = [];
-    let hasNextPage = true;
-    let pageInfo = null;
+// Helper to fetch all pages from Shopify
+const fetchShopifyResource = async (url, accessToken) => {
+  let allItems = [];
+  let hasNextPage = true;
+  let pageInfo = null;
+  const baseUrl = url.split('?')[0];
 
-    while (hasNextPage) {
-      const url = pageInfo
-        ? `https://${shopDomain}/admin/api/2024-01/products.json?limit=250&page_info=${pageInfo}`
-        : `https://${shopDomain}/admin/api/2024-01/products.json?limit=250`;
+  while (hasNextPage) {
+    const currentUrl = pageInfo
+      ? `${baseUrl}?limit=250&page_info=${pageInfo}`
+      : `${url}${url.includes('?') ? '&' : '?'}limit=250`;
 
-      const response = await axios.get(url, {
-        headers: { 'X-Shopify-Access-Token': accessToken }
-      });
+    const response = await axios.get(currentUrl, {
+      headers: { 'X-Shopify-Access-Token': accessToken }
+    });
 
-      allProducts = [...allProducts, ...response.data.products];
+    // Determine resource key (products, customers, orders)
+    const keys = Object.keys(response.data);
+    const dataKey = keys.find(k => Array.isArray(response.data[k]));
+    if (dataKey) {
+      allItems = [...allItems, ...response.data[dataKey]];
+    }
 
-      const linkHeader = response.headers.link;
-      if (linkHeader && linkHeader.includes('rel="next"')) {
-        const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-        if (nextMatch) {
-          const nextUrl = new URL(nextMatch[1]);
-          pageInfo = nextUrl.searchParams.get('page_info');
-        } else {
-          hasNextPage = false;
-        }
+    const linkHeader = response.headers.link;
+    if (linkHeader && linkHeader.includes('rel="next"')) {
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      if (nextMatch) {
+        const nextUrl = new URL(nextMatch[1]);
+        pageInfo = nextUrl.searchParams.get('page_info');
       } else {
         hasNextPage = false;
       }
+    } else {
+      hasNextPage = false;
     }
+  }
+  return allItems;
+};
 
-    const formattedProducts = allProducts.map(product => ({
-      productId: product.id.toString(),
-      name: product.title,
-      description: product.body_html?.replace(/<[^>]*>/g, '') || '',
-      price: parseFloat(product.variants[0]?.price) || 0,
-      category: product.product_type,
-      tags: product.tags ? product.tags.split(',').map(t => t.trim()) : [],
-      url: `https://${shopDomain}/products/${product.handle}`,
-      imageUrl: product.images[0]?.src || '',
-      stock: product.variants.reduce((sum, v) => sum + (v.inventory_quantity || 0), 0),
-      metadata: { shopifyId: product.id, vendor: product.vendor, variants: product.variants.length }
+const syncShopifyData = async (userId, shopDomain, accessToken) => {
+  try {
+    console.log(`⏳ Starting full sync for ${shopDomain}...`);
+
+    // 1. Fetch Products
+    const products = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/products.json`, accessToken);
+    console.log(`📦 Fetched ${products.length} products`);
+
+    // 2. Fetch Customers
+    const customers = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/customers.json`, accessToken);
+    console.log(`👥 Fetched ${customers.length} customers`);
+
+    // 3. Fetch Orders
+    const orders = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/orders.json?status=any`, accessToken);
+    console.log(`🛒 Fetched ${orders.length} orders`);
+
+    // 4. Transform Data
+    const formattedProducts = products.map(p => ({
+      id: p.id?.toString(),
+      title: p.title,
+      handle: p.handle,
+      productType: p.product_type,
+      vendor: p.vendor,
+      variants: p.variants,
+      images: p.images,
+      publishedAt: p.published_at,
+      updatedAt: p.updated_at
+    }));
+
+    const formattedCustomers = customers.map(c => ({
+      id: c.id?.toString(),
+      firstName: c.first_name,
+      lastName: c.last_name,
+      email: c.email,
+      phone: c.phone,
+      ordersCount: c.orders_count,
+      totalSpent: c.total_spent,
+      currency: c.currency,
+      addresses: c.addresses,
+      createdAt: c.created_at,
+      updatedAt: c.updated_at
+    }));
+
+    const formattedOrders = orders.map(o => ({
+      id: o.id?.toString(),
+      orderNumber: o.order_number,
+      email: o.email,
+      phone: o.phone,
+      totalPrice: o.total_price,
+      subtotalPrice: o.subtotal_price,
+      totalTax: o.total_tax,
+      currency: o.currency,
+      financialStatus: o.financial_status,
+      fulfillmentStatus: o.fulfillment_status,
+      lineItems: o.line_items,
+      customer: o.customer,
+      shippingAddress: o.shipping_address,
+      billingAddress: o.billing_address,
+      processedAt: o.processed_at,
+      createdAt: o.created_at,
+      updatedAt: o.updated_at
+    }));
+
+    // 5. Save to ShopifyData Collection (Full Dump)
+    const update = {
+      shopDomain,
+      products: formattedProducts,
+      customers: formattedCustomers,
+      orders: formattedOrders,
+      lastSyncedAt: new Date()
+    };
+
+    await ShopifyData.findOneAndUpdate({ user: userId }, update, { upsert: true, new: true });
+
+    // 6. Update ProductKnowledge (Legacy/Frontend Compatibility)
+    // We keep this for now so the existing Knowledge Base UI still works
+    const kbProducts = formattedProducts.map(p => ({
+      productId: p.id,
+      name: p.title,
+      description: p.variants?.[0]?.title || '', // simplified
+      price: parseFloat(p.variants?.[0]?.price || 0),
+      category: p.productType,
+      imageUrl: p.images?.[0]?.src || '',
+      stock: p.variants?.reduce((acc, v) => acc + (v.inventory_quantity || 0), 0) || 0,
+      url: `https://${shopDomain}/products/${p.handle}`,
+      metadata: { vendor: p.vendor }
     }));
 
     let knowledge = await ProductKnowledge.findOne({ user: userId });
     if (!knowledge) {
-      knowledge = await ProductKnowledge.create({ user: userId, products: formattedProducts, faqs: [], customResponses: [] });
+      knowledge = await ProductKnowledge.create({ user: userId, products: kbProducts, faqs: [], customResponses: [] });
     } else {
-      knowledge.products = formattedProducts;
+      knowledge.products = kbProducts;
       knowledge.lastSynced = new Date();
       await knowledge.save();
     }
 
-    console.log(`✅ Synced ${formattedProducts.length} products for user ${userId}`);
-    return formattedProducts.length;
+    console.log(`✅ Full sync complete for user ${userId}`);
+    return {
+      products: products.length,
+      customers: customers.length,
+      orders: orders.length
+    };
 
   } catch (error) {
     console.error('❌ Shopify sync error:', error?.message || error);
     throw error;
+  }
+};
+
+export const manualSync = async (req, res) => {
+  try {
+    console.log("\n===============================");
+    console.log("🛠️  Manual Shopify Sync Started");
+
+    // Explicitly select nested shopifyData.accessToken 
+    let user = await User.findById(req.user?._id).select('+shopifyData +shopifyData.accessToken').lean();
+
+    if (!user || !user.shopifyData?.accessToken) {
+      return res.status(400).json({ success: false, message: 'Shopify not connected.' });
+    }
+
+    const counts = await syncShopifyData(user._id, user.shopifyData.shopDomain, user.shopifyData.accessToken);
+
+    res.status(200).json({
+      success: true,
+      message: `Synced ${counts.products} products, ${counts.customers} customers, ${counts.orders} orders.`,
+      data: counts
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -596,63 +710,9 @@ export default {
 
 // Note: manualSync and getShopifyStatus are defined later to keep file organized
 // ----------------- manualSync and getShopifyStatus -----------------
-export const manualSync = async (req, res) => {
-  try {
-    console.log("\n===============================");
-    console.log("🛠️  Manual Shopify Sync Started");
-    console.log("⏳ Time:", new Date().toISOString());
-    console.log("👤 req.user from auth middleware:", req.user ? { id: req.user._id, email: req.user.email } : 'no req.user');
-    console.log("===============================\n");
+// ----------------- getShopifyStatus -----------------
+// manualSync moved up
 
-    // Explicitly select nested shopifyData.accessToken (in case schema uses select:false)
-    let user = await User.findById(req.user?._id).select('+shopifyData +shopifyData.accessToken').lean();
-
-    // Fallback: try finding by store in body/query
-    if (!user && req.body?.shop) {
-      user = await User.findOne({ 'shopifyData.shopDomain': req.body.shop }).select('+shopifyData +shopifyData.accessToken').lean();
-      console.log('🔎 Fallback user lookup by shop returned:', !!user);
-    }
-
-    console.log("👤 Fetched User for Sync:", user ? user.email : "Not Found");
-    console.log("🔗 shopifyData present:", !!user?.shopifyData);
-    console.log("🔑 AccessToken present:", !!user?.shopifyData?.accessToken);
-
-    if (!user?.shopifyData?.accessToken) {
-      console.log("❌ Shopify NOT connected for this user");
-      return res.status(400).json({
-        success: false,
-        message: 'Shopify not connected. Please install the Shopify app first or verify the stored access token.'
-      });
-    }
-
-    const count = await syncShopifyProducts(user._id, user.shopifyData.shopDomain, user.shopifyData.accessToken);
-
-    console.log("\n===============================");
-    console.log("✅ Shopify Sync Successful!");
-    console.log("📦 Total Products Synced:", count);
-    console.log("👤 User:", user.email);
-    console.log("⏰ Completed at:", new Date().toISOString());
-    console.log("===============================\n");
-
-    res.status(200).json({
-      success: true,
-      message: `Successfully synced ${count} products`,
-      data: { productsCount: count }
-    });
-
-  } catch (error) {
-    console.log("\n===============================");
-    console.log("❌ Shopify Sync FAILED!");
-    console.log("🔥 Error:", error.message || error);
-    console.log("⏰ Time:", new Date().toISOString());
-    console.log("===============================\n");
-
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
 
 export const getShopifyStatus = async (req, res) => {
   try {
