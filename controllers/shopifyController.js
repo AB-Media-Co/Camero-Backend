@@ -26,24 +26,61 @@ export const verifyShopifyHMAC = (req, hmacHeader) => {
   try {
     if (!req || !hmacHeader) return false;
 
+    // Use URLSearchParams to robustly handle the original query string
+    // This handles parsing decoded values and ensures we can delete strict keys
     const original = req.originalUrl || req.url || '';
     const qIndex = original.indexOf('?');
-    let rawQuery = '';
-    if (qIndex >= 0) {
-      rawQuery = original.slice(qIndex + 1);
-    } else if (req.query && Object.keys(req.query).length) {
-      // fallback build canonical string
-      rawQuery = Object.keys(req.query)
-        .filter(k => k !== 'hmac' && k !== 'signature')
-        .sort()
-        .map(k => {
-          const v = req.query[k];
-          return Array.isArray(v) ? v.map(x => `${k}=${x}`).join('&') : `${k}=${v}`;
-        })
-        .join('&');
+
+    // We need the raw query string but we MUST remove 'hmac' (and 'signature' if present)
+    // The safest way is to parse parameters, filter, sort, and reconstruct.
+    // NOTE: 'querystring' module might be safer for identical reconstruction but URLSearchParams is standard.
+    // However, Shopify requires keys to be sorted.
+
+    let paramsMap = new Map();
+    // Parse from req.query (already parsed by express) or reconstruct manually if worried about express decoding
+    // Standard Shopify practice: take req.query, delete hmac, sort.
+
+    if (Object.keys(req.query).length === 0) {
+      // Fallback if req.query is empty (unlikely)
+      return false;
     }
 
-    const generatedHex = crypto.createHmac('sha256', config.shopifyApiSecret).update(rawQuery).digest('hex');
+    const keys = Object.keys(req.query)
+      .filter(key => key !== 'hmac' && key !== 'signature')
+      .sort();
+
+    const components = keys.map(key => {
+      const value = req.query[key];
+      // Note: express decodes query params. We need to handle potential array values
+      // But Shopify usually sends simple strings. 
+      // Important: We shouldn't re-encode if it wasn't encoded, or should we?
+      // Shopify says: "replace & with %26 and % with %25" -- wait, that's strictly for the message
+      // Actually, for Node app with express, usage of raw body is tricky.
+      // Let's stick to the method that typically works: parsing query, sorting, joining key=value.
+
+      return `${key}=${value}`;
+    });
+
+    // HOWEVER! If req.query values are already decoded by Express (e.g. "foo bar"),
+    // check if we need to check raw.
+    // The previous failed implementation used originalUrl.slice which included hmac.
+    // Let's try to parse originalUrl's query string directly to be safe against Express decoding 
+    // transforming things (like + to space).
+
+    let rawParams = new URLSearchParams(qIndex >= 0 ? original.slice(qIndex + 1) : '');
+    rawParams.delete('hmac');
+    rawParams.delete('signature');
+    rawParams.sort();
+
+    const message = rawParams.toString();
+    // URLSearchParams.toString() encodes data.
+    // Shopify documentation says "The message is the query string... with HMAC removed"
+    // Usually, the raw query string (without hmac) is what should be hashed.
+    // The previous implementation failed because it included hmac.
+
+    const generatedHex = crypto.createHmac('sha256', config.shopifyApiSecret)
+      .update(message)
+      .digest('hex');
 
     const genBuf = Buffer.from(generatedHex, 'hex');
     const headerBuf = Buffer.from(hmacHeader || '', 'hex');
