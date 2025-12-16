@@ -63,6 +63,26 @@
     return fetch(url, opts).finally(() => clearTimeout(id));
   };
 
+  // Global scrolling handlers for the widget carousels
+  window.widgetScrollProductCarousel = (id, direction) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const amount = 200;
+    el.scrollBy({ left: direction === 'left' ? -amount : amount, behavior: 'smooth' });
+  };
+
+  window.widgetCheckScroll = (id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const leftGrad = document.getElementById(id + '-grad-left');
+    const rightGrad = document.getElementById(id + '-grad-right');
+
+    if (leftGrad) leftGrad.style.display = el.scrollLeft > 10 ? 'block' : 'none';
+    if (rightGrad) rightGrad.style.display = el.scrollLeft < (el.scrollWidth - el.clientWidth - 10) ? 'block' : 'none';
+  };
+
+
+
   class ChatWidget {
     constructor(config) {
       this.apiKey = config.apiKey;
@@ -164,73 +184,174 @@
         .product-carousel::-webkit-scrollbar-thumb { background: #17876E; border-radius: 10px; }
         
         .product-card {
-          flex: 0 0 180px;
+          flex: 0 0 210px; /* w-52 approx */
           scroll-snap-align: start;
           background: #fff;
-          border-radius: 12px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+          border-radius: 16px; /* rounded-2xl */
+          box-shadow: 0 2px 4px rgba(0,0,0,0.05); /* shadow-sm */
           overflow: hidden;
-          transition: transform 0.2s, box-shadow 0.2s;
-          border: 1px solid rgba(0,0,0,0.05);
+          transition: box-shadow 0.2s;
+          border: 1px solid #e5e7eb; /* gray-200 */
           display: flex;
           flex-direction: column;
         }
-        .product-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+        .product-card:hover { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* shadow-md */ }
         
-        .product-card img { width: 100%; height: 120px; object-fit: cover; background: #f9f9f9; border-bottom: 1px solid #f0f0f0; }
+        .product-card-img-container {
+          height: 192px; /* h-48 */
+          padding: 16px;
+          background: #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          position: relative;
+        }
+
+        .product-card img { 
+          width: 100%; 
+          height: 100%; 
+          object-fit: contain; 
+        }
         
-        .product-card-body { padding: 12px; display: flex; flex-direction: column; flex: 1; }
+        .product-card-body { 
+          padding: 0 16px 16px 16px; 
+          display: flex; 
+          flex-direction: column; 
+          flex: 1; 
+        }
         
         .product-card-title { 
-          font-weight: 600; 
-          font-size: 13px; 
-          margin-bottom: 6px; 
-          color: #222; 
+          font-weight: 500; 
+          font-size: 14px; 
+          margin-bottom: 8px; 
+          color: #111827; /* gray-900 */
           line-height: 1.4; 
           display: -webkit-box; 
-          -webkit-line-clamp: 2; 
+          -webkit-line-clamp: 3; 
           -webkit-box-orient: vertical; 
           overflow: hidden; 
-          height: 36px; /* Fixed height for 2 lines */
+          min-height: 60px;
         }
         
         .product-card-price { 
           font-weight: 700; 
-          font-size: 14px; 
-          color: #17876E; 
-          margin-bottom: 12px; 
+          font-size: 18px; 
+          color: #111827; /* gray-900 */
         }
         
-        .product-card-btn { 
-          margin-top: auto; 
-          display: block; 
-          width: 100%; 
-          padding: 10px; 
-          background: #17876E; 
-          color: white; 
-          border: none; 
-          border-radius: 8px; 
-          font-size: 12px; 
-          font-weight: 600; 
-          cursor: pointer; 
-          text-align: center; 
-          text-decoration: none; 
-          transition: background 0.2s; 
+        .product-card-actions {
+          margin-top: auto;
+          border-top: 1px solid #f3f4f6; /* gray-100 */
         }
-        .product-card-btn:hover { background: #14725d; }
-        .product-card-btn-secondary { background: transparent; color: #17876E; border: 1px solid #17876E; }
-        .product-card-btn-secondary:hover { background: #f0fdf4; color: #14725d; }
+
+        .product-action-btn { 
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%; 
+          padding: 12px 0; 
+          background: transparent;
+          color: #2563eb; /* blue-600 */
+          border: none; 
+          font-size: 14px; 
+          font-weight: 500; 
+          cursor: pointer; 
+          text-decoration: none; 
+          transition: background-color 0.2s; 
+        }
+        .product-action-btn:hover { background-color: #eff6ff; /* blue-50 */ }
+        
+        .product-view-btn {
+          border-bottom: 1px solid #f3f4f6; /* gray-100 */
+        }
         
         /* No image placeholder */
         .product-img-placeholder { 
-          width: 100%; 
-          height: 120px; 
-          background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%); 
-          display: flex; 
-          align-items: center; 
-          justify-content: center; 
-          color: #999;
-          font-size: 28px;
+          font-size: 36px;
+        }
+
+        /* Carousel Navigation & Layout */
+        .carousel-btn {
+          display: none; /* hidden by default, shown on md screens */
+          width: 32px;
+          height: 32px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 9999px;
+          border: 1px solid #e5e7eb;
+          background: white;
+          color: #4b5563;
+          cursor: pointer;
+          transition: all 0.2s;
+          flex-shrink: 0;
+          z-index: 20;
+        }
+        .carousel-btn:hover:not(:disabled) {
+          background-color: #f3f4f6;
+          border-color: #9ca3af;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .carousel-btn:disabled {
+          border-color: #e5e7eb;
+          color: #d1d5db;
+          cursor: not-allowed;
+          opacity: 0.5;
+        }
+        
+        /* Media query for carousel buttons - mimicking md:flex */
+        @media (min-width: 768px) {
+          .carousel-btn { display: flex; }
+        }
+
+        .carousel-container {
+          position: relative;
+          flex: 1;
+          overflow: hidden;
+        }
+
+        .carousel-gradient-left {
+          position: absolute;
+          left: 0; top: 0; bottom: 0;
+          width: 24px;
+          background: linear-gradient(to right, #F4F6F8, transparent);
+          z-index: 10;
+          pointer-events: none;
+        }
+        .carousel-gradient-right {
+          position: absolute;
+          right: 0; top: 0; bottom: 0;
+          width: 24px;
+          background: linear-gradient(to left, #F4F6F8, transparent);
+          z-index: 10;
+          pointer-events: none;
+        }
+
+        /* Hide scrollbar but keep functionality */
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        
+        /* Mobile Dots */
+        .carousel-dots {
+          display: flex;
+          justify-content: center;
+          gap: 6px;
+          margin-top: 8px;
+        }
+        .carousel-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 9999px;
+          background-color: #d1d5db;
+        }
+        @media (min-width: 768px) {
+          .carousel-dots { display: none; }
         }
       `;
       document.head.appendChild(style);
@@ -328,32 +449,143 @@
     renderProductCarousel(products) {
       if (!products || products.length === 0) return '';
 
+      const carouselId = 'carousel-' + Math.random().toString(36).substr(2, 9);
+
       const cardsHtml = products.map(product => {
         const imageHtml = product.imageUrl
           ? `<img src="${product.imageUrl}" alt="${product.name || 'Product'}" onerror="this.parentElement.innerHTML='<div class=\\'product-img-placeholder\\'>📦</div>'">`
           : `<div class="product-img-placeholder">📦</div>`;
 
         const priceHtml = product.price
-          ? `<div class="product-card-price">$${parseFloat(product.price).toFixed(2)}</div>`
+          ? `<div class="product-card-price">₹${parseFloat(product.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>`
           : '';
 
-        const btnHtml = product.url
-          ? `<div style="display:flex; gap:8px; margin-top:auto;">
-               <a href="${product.url}" target="_blank" class="product-card-btn" style="flex:1;">View</a>
-               ${product.defaultVariantId
-            ? `<button onclick="window.location.href='/cart/${product.defaultVariantId}:1'" class="product-card-btn product-card-btn-secondary" style="flex:1;">Add</button>`
-            : ''}
-             </div>`
+        // Check for discount
+        const discountBadge = (product.originalPrice && parseFloat(product.originalPrice) > parseFloat(product.price))
+          ? `<span style="position:absolute; top:8px; left:8px; padding:2px 6px; background:#ef4444; color:white; font-size:10px; font-weight:bold; border-radius:4px;">${Math.round((1 - parseFloat(product.price) / parseFloat(product.originalPrice)) * 100)}% OFF</span>`
           : '';
+
+        const viewIcon = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="14" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
+
+        const cartIcon = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="14" width="14" xmlns="http://www.w3.org/2000/svg"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>';
+
+        const actionsHtml = `
+            <div class="product-card-actions">
+                ${product.url ? `
+                <a href="${product.url}" target="_blank" class="product-action-btn product-view-btn">
+                    View Product ${viewIcon}
+                </a>` : ''}
+                <button class="product-action-btn" onclick="console.log('Add to cart')">
+                    ${cartIcon} Add to cart
+                </button>
+            </div>
+        `;
+
+        return `
+          <div class="product-card" style="position:relative;">
+            <div class="product-card-img-container">
+                ${discountBadge}
+                ${imageHtml}
+            </div>
+            <div class="product-card-body">
+              <div class="product-card-title" title="${product.name || 'Product'}">${product.name || 'Product'}</div>
+              ${priceHtml}
+            </div>
+            ${actionsHtml}
+          </div>
+        `;
+      }).join('');
+
+      // Navigation Icons
+      const chevronLeft = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><polyline points="15 18 9 12 15 6"></polyline></svg>';
+      const chevronRight = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="16" width="16" xmlns="http://www.w3.org/2000/svg"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+
+      // Dots for mobile
+      const dotsHtml = products.length > 2
+        ? `<div class="carousel-dots">
+             ${products.slice(0, Math.min(5, products.length)).map(() => `<div class="carousel-dot"></div>`).join('')}
+             ${products.length > 5 ? '<span style="font-size:10px; color:#9ca3af; margin-left:2px;">+' + (products.length - 5) + '</span>' : ''}
+           </div>`
+        : '';
+
+      // Left/Right arrow logic - buttons call global function
+      const leftBtn = products.length > 2
+        ? `<button class="carousel-btn" onclick="window.widgetScrollProductCarousel('${carouselId}', 'left')">${chevronLeft}</button>`
+        : '';
+      const rightBtn = products.length > 2
+        ? `<button class="carousel-btn" onclick="window.widgetScrollProductCarousel('${carouselId}', 'right')">${chevronRight}</button>`
+        : '';
+
+      return `
+        <div class="product-carousel-wrapper" style="width:100%; margin-top:12px;">
+          <!-- Header -->
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; padding-left:4px;">
+            <div style="width:4px; height:16px; background:#17876E; border-radius:99px;"></div>
+            <span style="font-size:12px; font-weight:600; color:#4b5563; text-transform:uppercase; letter-spacing:0.05em;">Recommended Products</span>
+            <span style="font-size:12px; color:#9ca3af;">(${products.length})</span>
+          </div>
+
+          <!-- Carousel Area -->
+          <div style="display:flex; align-items:center; gap:8px;">
+            ${leftBtn}
+            
+            <div class="carousel-container">
+               <div class="carousel-gradient-left" style="display:none;" id="${carouselId}-grad-left"></div>
+               <div class="carousel-gradient-right" id="${carouselId}-grad-right"></div>
+               
+               <div id="${carouselId}" class="product-carousel scrollbar-hide" onscroll="window.widgetCheckScroll('${carouselId}')">
+                 ${cardsHtml}
+                 <div style="flex-shrink:0; width:4px;"></div>
+               </div>
+            </div>
+            
+            ${rightBtn}
+          </div>
+          ${dotsHtml}
+        </div>
+      `;
+    }
+
+    // Render product carousel HTML
+    renderProductCarousel_OLD(products) {
+      // PREMIUM UPDATED
+      if (!products || products.length === 0) return '';
+
+      const cardsHtml = products.map(product => {
+        const imageHtml = product.imageUrl
+          ? `<img src="${product.imageUrl}" alt="${product.name || 'Product'}" onerror="this.parentElement.innerHTML='<div class=\\'product-img-placeholder\\'>📦</div>'">`
+          : `<div class="product-img-placeholder">📦</div>`;
+
+        const priceHtml = product.price
+          ? `<div class="product-card-price">₹${parseFloat(product.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>`
+          : '';
+
+        const viewIcon = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="14" width="14" xmlns="http://www.w3.org/2000/svg"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
+
+        const cartIcon = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="14" width="14" xmlns="http://www.w3.org/2000/svg"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>';
+
+        const actionsHtml = `
+            <div class="product-card-actions">
+                ${product.url ? `
+                <a href="${product.url}" target="_blank" class="product-action-btn product-view-btn">
+                    View Product ${viewIcon}
+                </a>` : ''}
+                <button class="product-action-btn" onclick="console.log('Add to cart')">
+                    ${cartIcon} Add to cart
+                </button>
+            </div>
+        `;
 
         return `
           <div class="product-card">
-            ${imageHtml}
-            <div class="product-card-body">
-              <div class="product-card-title">${product.name || 'Product'}</div>
-              ${priceHtml}
-              ${btnHtml}
+            <div class="product-card-img-container">
+                ${imageHtml}
             </div>
+            <div class="product-card-body">
+              <div class="product-card-title" title="${product.name || 'Product'}">${product.name || 'Product'}</div>
+              ${priceHtml}
+            </div>
+            ${actionsHtml}
           </div>
         `;
       }).join('');
