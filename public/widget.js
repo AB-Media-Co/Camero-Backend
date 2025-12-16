@@ -63,6 +63,9 @@
     return fetch(url, opts).finally(() => clearTimeout(id));
   };
 
+  // Global Product Cache
+  window.widgetProducts = {};
+
   // Global scrolling handlers for the widget carousels
   window.widgetScrollProductCarousel = (id, direction) => {
     const el = document.getElementById(id);
@@ -79,6 +82,55 @@
 
     if (leftGrad) leftGrad.style.display = el.scrollLeft > 10 ? 'block' : 'none';
     if (rightGrad) rightGrad.style.display = el.scrollLeft < (el.scrollWidth - el.clientWidth - 10) ? 'block' : 'none';
+  };
+
+  // Show Product Modal
+  window.widgetShowProductModal = (id) => {
+    const product = window.widgetProducts[id];
+    if (!product) return;
+
+    // Create modal elements
+    const backdrop = document.createElement('div');
+    backdrop.className = 'product-modal-backdrop';
+    backdrop.onclick = (e) => {
+      if (e.target === backdrop) backdrop.remove();
+    };
+
+    const hasDiscount = product.originalPrice && parseFloat(product.originalPrice) > parseFloat(product.price);
+    const discountPercent = hasDiscount ? Math.round((1 - parseFloat(product.price) / parseFloat(product.originalPrice)) * 100) : 0;
+    const priceFormatted = parseFloat(product.price).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+    // Fallback image handling
+    const imgUrl = product.imageUrl || '';
+    const imgOnError = "this.src='https://via.placeholder.com/100?text=No+Image'";
+
+    backdrop.innerHTML = `
+        <div class="product-modal">
+            <button class="product-modal-close" onclick="this.closest('.product-modal-backdrop').remove()">×</button>
+            
+            <div class="modal-product-content">
+                <img src="${imgUrl}" onerror="${imgOnError}" class="modal-product-img" alt="${product.name}" />
+                <div class="modal-product-details">
+                    <div class="modal-product-title">${product.name}</div>
+                    
+                    <div class="modal-product-price-row">
+                        <span class="modal-final-price">₹${priceFormatted}</span>
+                        ${hasDiscount ? `<span class="modal-original-price">₹${parseFloat(product.originalPrice).toLocaleString('en-IN')}</span>` : ''}
+                    </div>
+                    
+                    ${hasDiscount ? `<span class="modal-discount-badge">${discountPercent}% off</span>` : ''}
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="modal-checkout-btn" onclick="window.location.href='/cart/${product.defaultVariantId}:1'">
+                    CHECKOUT - ₹${priceFormatted}
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(backdrop);
   };
 
 
@@ -353,6 +405,92 @@
           border-radius: 9999px;
           background-color: #d1d5db;
         }
+        /* Product Modal */
+        .product-modal-backdrop {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0, 0, 0, 0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10000;
+          opacity: 0;
+          animation: fadeIn 0.3s forwards;
+          backdrop-filter: blur(2px);
+        }
+        .product-modal {
+          background: white;
+          width: 90%;
+          max-width: 400px;
+          border-radius: 20px;
+          overflow: hidden;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+          transform: scale(0.95);
+          opacity: 0;
+          animation: modalPop 0.3s forwards;
+          position: relative;
+        }
+        @keyframes modalPop { 
+          from { transform: scale(0.95); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
+        .product-modal-close {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          width: 30px;
+          height: 30px;
+          background: #f3f4f6;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          color: #6b7280;
+          border: none;
+          font-size: 20px;
+          z-index: 10;
+          transition: background 0.2s;
+        }
+        .product-modal-close:hover { background: #e5e7eb; color: #111827; }
+
+        .modal-product-content { padding: 20px; display: flex; gap: 16px; align-items: start; }
+        .modal-product-img { 
+          width: 100px; 
+          height: 100px; 
+          flex-shrink: 0; 
+          border-radius: 8px; 
+          border: 1px solid #e5e7eb;
+          padding: 8px;
+          object-fit: contain;
+        }
+        .modal-product-details { flex: 1; min-width: 0; }
+        .modal-product-title { font-size: 14px; font-weight: 500; color: #111827; margin-bottom: 8px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+        .modal-product-price-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+        .modal-final-price { font-size: 18px; font-weight: 700; color: #111827; }
+        .modal-original-price { font-size: 13px; color: #9ca3af; text-decoration: line-through; }
+        .modal-discount-badge { background: #16a34a; color: white; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        
+        .modal-actions { padding: 16px 20px 20px; border-top: 1px solid #f3f4f6; }
+        .modal-checkout-btn {
+          width: 100%;
+          background: #15803d; /* green-700 */
+          color: white;
+          padding: 14px;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 14px;
+          border: none;
+          cursor: pointer;
+          transition: background 0.2s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          box-shadow: 0 4px 6px -1px rgba(21, 128, 61, 0.2);
+        }
+        .modal-checkout-btn:hover { background: #166534; } /* green-800 */
+        
         @media (min-width: 768px) {
           .carousel-dots { display: none; }
         }
@@ -472,13 +610,17 @@
 
         const cartIcon = '<svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="14" width="14" xmlns="http://www.w3.org/2000/svg"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>';
 
+        // Register product in global cache
+        const productId = 'prod_' + Math.random().toString(36).substr(2, 9);
+        window.widgetProducts[productId] = product;
+
         const actionsHtml = `
             <div class="product-card-actions">
                 ${product.url ? `
                 <a href="${product.url}" target="_blank" class="product-action-btn product-view-btn">
                     View Product ${viewIcon}
                 </a>` : ''}
-                <button class="product-action-btn" onclick="${product.defaultVariantId ? `window.location.href='/cart/${product.defaultVariantId}:1'` : `console.warn('Product variant ID missing')`}">
+                <button class="product-action-btn" onclick="window.widgetShowProductModal('${productId}')">
                     ${cartIcon} Add to cart
                 </button>
             </div>
