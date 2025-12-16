@@ -478,9 +478,10 @@
                 <a href="${product.url}" target="_blank" class="product-action-btn product-view-btn">
                     View Product ${viewIcon}
                 </a>` : ''}
-                <button class="product-action-btn" onclick="console.log('Add to cart')">
+                ${product.defaultVariantId ? `
+                <button class="product-action-btn" onclick="window.location.href='/cart/${product.defaultVariantId}:1'">
                     ${cartIcon} Add to cart
-                </button>
+                </button>` : ''}
             </div>
         `;
 
