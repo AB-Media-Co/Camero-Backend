@@ -478,10 +478,9 @@
                 <a href="${product.url}" target="_blank" class="product-action-btn product-view-btn">
                     View Product ${viewIcon}
                 </a>` : ''}
-                ${product.defaultVariantId ? `
-                <button class="product-action-btn" onclick="window.location.href='/cart/${product.defaultVariantId}:1'">
+                <button class="product-action-btn" onclick="${product.defaultVariantId ? `window.location.href='/cart/${product.defaultVariantId}:1'` : `console.warn('Product variant ID missing')`}">
                     ${cartIcon} Add to cart
-                </button>` : ''}
+                </button>
             </div>
         `;
 
