@@ -275,29 +275,32 @@
         /* Carousel Navigation & Layout */
         .carousel-btn {
           display: none; /* hidden by default, shown on md screens */
+          position: absolute;
+          top: 50%;
+          transform: translateY(-50%);
           width: 32px;
           height: 32px;
           align-items: center;
           justify-content: center;
           border-radius: 9999px;
           border: 1px solid #e5e7eb;
-          background: white;
+          background: rgba(255, 255, 255, 0.9);
           color: #4b5563;
           cursor: pointer;
           transition: all 0.2s;
-          flex-shrink: 0;
-          z-index: 20;
+          z-index: 30;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+        .carousel-btn-left { left: 0; }
+        .carousel-btn-right { right: 0; }
+
         .carousel-btn:hover:not(:disabled) {
-          background-color: #f3f4f6;
+          background-color: #ffffff;
           border-color: #9ca3af;
-          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
         .carousel-btn:disabled {
-          border-color: #e5e7eb;
-          color: #d1d5db;
-          cursor: not-allowed;
-          opacity: 0.5;
+          display: none;
         }
         
         /* Media query for carousel buttons - mimicking md:flex */
@@ -510,10 +513,10 @@
 
       // Left/Right arrow logic - buttons call global function
       const leftBtn = products.length > 2
-        ? `<button class="carousel-btn" onclick="window.widgetScrollProductCarousel('${carouselId}', 'left')">${chevronLeft}</button>`
+        ? `<button class="carousel-btn carousel-btn-left" onclick="window.widgetScrollProductCarousel('${carouselId}', 'left')">${chevronLeft}</button>`
         : '';
       const rightBtn = products.length > 2
-        ? `<button class="carousel-btn" onclick="window.widgetScrollProductCarousel('${carouselId}', 'right')">${chevronRight}</button>`
+        ? `<button class="carousel-btn carousel-btn-right" onclick="window.widgetScrollProductCarousel('${carouselId}', 'right')">${chevronRight}</button>`
         : '';
 
       return `
@@ -526,7 +529,7 @@
           </div>
 
           <!-- Carousel Area -->
-          <div style="display:flex; align-items:center; gap:8px;">
+          <div style="position:relative; width:100%;">
             ${leftBtn}
             
             <div class="carousel-container">
