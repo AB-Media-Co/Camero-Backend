@@ -130,7 +130,7 @@
         </div>
     `;
 
-    document.body.appendChild(backdrop);
+    document.getElementById('chat-window-container').appendChild(backdrop);
   };
 
 
@@ -407,39 +407,39 @@
         }
         /* Product Modal */
         .product-modal-backdrop {
-          position: fixed;
+          position: absolute;
           top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0, 0, 0, 0.5);
+          background: rgba(0, 0, 0, 0.3);
           display: flex;
-          align-items: center;
+          align-items: flex-end; /* Align to bottom */
           justify-content: center;
-          z-index: 10000;
+          z-index: 100;
           opacity: 0;
           animation: fadeIn 0.3s forwards;
-          backdrop-filter: blur(2px);
+          border-radius: 16px; /* Match widget border radius */
+          overflow: hidden;
         }
         .product-modal {
           background: white;
-          width: 90%;
-          max-width: 400px;
-          border-radius: 20px;
-          overflow: hidden;
-          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-          transform: scale(0.95);
-          opacity: 0;
-          animation: modalPop 0.3s forwards;
+          width: 100%;
+          border-top-left-radius: 20px;
+          border-top-right-radius: 20px;
+          box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+          transform: translateY(100%);
+          animation: slideUpModal 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
           position: relative;
+          padding-bottom: 20px;
         }
-        @keyframes modalPop { 
-          from { transform: scale(0.95); opacity: 0; }
-          to { transform: scale(1); opacity: 1; }
+        @keyframes slideUpModal { 
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
         }
         .product-modal-close {
           position: absolute;
           top: 12px;
           right: 12px;
-          width: 30px;
-          height: 30px;
+          width: 28px;
+          height: 28px;
           background: #f3f4f6;
           border-radius: 50%;
           display: flex;
@@ -448,9 +448,8 @@
           cursor: pointer;
           color: #6b7280;
           border: none;
-          font-size: 20px;
+          font-size: 18px;
           z-index: 10;
-          transition: background 0.2s;
         }
         .product-modal-close:hover { background: #e5e7eb; color: #111827; }
 
