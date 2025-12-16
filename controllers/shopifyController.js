@@ -397,6 +397,90 @@ const fetchShopifyResource = async (url, accessToken) => {
   return allItems;
 };
 
+
+
+// ----------------- GraphQL Helpers -----------------
+const queryShopifyGraphQL = async (shop, accessToken, query, variables = {}) => {
+  try {
+    const response = await axios.post(
+      `https://${shop}/admin/api/2024-01/graphql.json`,
+      { query, variables },
+      {
+        headers: {
+          'X-Shopify-Access-Token': accessToken,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    if (response.data.errors) {
+      throw new Error(JSON.stringify(response.data.errors));
+    }
+    return response.data.data;
+  } catch (error) {
+    console.error('GraphQL Error:', error.response?.data || error.message);
+    throw error;
+  }
+};
+
+const fetchShopifyProductsGraphQL = async (shop, accessToken) => {
+  let allProducts = [];
+  let hasNextPage = true;
+  let cursor = null;
+
+  const query = `
+    query getProducts($cursor: String) {
+      products(first: 50, after: $cursor) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        edges {
+          node {
+            id
+            title
+            handle
+            productType
+            vendor
+            updatedAt
+            publishedAt
+            images(first: 10) {
+              edges {
+                node {
+                  url
+                  width
+                  height
+                }
+              }
+            }
+            variants(first: 50) {
+              edges {
+                node {
+                  id
+                  title
+                  price
+                  inventoryQuantity
+                  sku
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  while (hasNextPage) {
+    const data = await queryShopifyGraphQL(shop, accessToken, query, { cursor });
+    if (!data || !data.products) break;
+
+    const productsData = data.products;
+    allProducts = [...allProducts, ...productsData.edges.map(edge => edge.node)];
+    hasNextPage = productsData.pageInfo.hasNextPage;
+    cursor = productsData.pageInfo.endCursor;
+  }
+  return allProducts;
+};
+
 const syncShopifyData = async (userId, shopDomain, accessToken) => {
   try {
     console.log(`⏳ Starting full sync for ${shopDomain}...`);
@@ -404,11 +488,12 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
     let products = [], customers = [], orders = [];
 
     // 1. Fetch Products safely
+    // 1. Fetch Products via GraphQL to avoid REST deprecation
     try {
-      products = await fetchShopifyResource(`https://${shopDomain}/admin/api/2024-01/products.json`, accessToken);
-      console.log(`📦 Fetched ${products.length} products`);
+      products = await fetchShopifyProductsGraphQL(shopDomain, accessToken);
+      console.log(`📦 Fetched ${products.length} products (via GraphQL)`);
     } catch (e) {
-      if (e.response?.status === 401) throw e; // Rethrow 401 to trigger re-auth
+      if (e.response?.status === 401) throw e;
       console.error("❌ Failed to fetch products:", e.message);
     }
 
@@ -431,17 +516,42 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
     }
 
     // 4. Transform Data
-    const formattedProducts = products.map(p => ({
-      id: p.id?.toString(),
-      title: p.title,
-      handle: p.handle,
-      productType: p.product_type,
-      vendor: p.vendor,
-      variants: p.variants,
-      images: p.images,
-      publishedAt: p.published_at,
-      updatedAt: p.updated_at
-    }));
+    // 4. Transform Data
+    // Helper to extract numeric ID from GID
+    const getIdFromGid = (gid) => {
+      if (!gid) return '';
+      return gid.toString().split('/').pop();
+    };
+
+    const formattedProducts = products.map(p => {
+      // Map GraphQL variants to match previous REST structure
+      const variants = p.variants?.edges?.map(v => ({
+        id: getIdFromGid(v.node.id),
+        title: v.node.title,
+        price: v.node.price,
+        inventory_quantity: v.node.inventoryQuantity, // Map for compatibility
+        sku: v.node.sku
+      })) || [];
+
+      // Map GraphQL images to match previous REST structure
+      const images = p.images?.edges?.map(i => ({
+        src: i.node.url, // Map url to src
+        width: i.node.width,
+        height: i.node.height
+      })) || [];
+
+      return {
+        id: getIdFromGid(p.id),
+        title: p.title,
+        handle: p.handle,
+        productType: p.productType, // GraphQL is camelCase
+        vendor: p.vendor,
+        variants: variants,
+        images: images,
+        publishedAt: p.publishedAt,
+        updatedAt: p.updatedAt
+      };
+    });
 
     const formattedCustomers = customers.map(c => ({
       id: c.id?.toString(),
