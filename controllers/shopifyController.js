@@ -277,7 +277,9 @@ export const shopifyCallback = async (req, res) => {
     } else {
       // Create new user if absolutely no match found
       const randomPassword = crypto.randomBytes(32).toString('hex');
-      savedUser = await User.create({
+
+      // Create minimal user first to ensure basic creation works
+      savedUser = new User({
         name: shopData.shop_owner || shopData.name || `Shop ${shop}`,
         email: shopData.email || `unknown+${shop}@example.com`,
         storeUrl: `https://${shop}`,
@@ -293,10 +295,15 @@ export const shopifyCallback = async (req, res) => {
           personality: 'professional',
           interfaceColor: '#17876E',
           avatar: 'avatar-1.png'
-        },
-        shopifyData: shopifyDataObj
+        }
       });
+
+      // Explicitly set shopifyData
+      savedUser.shopifyData = shopifyDataObj;
+
+      await savedUser.save();
       console.log(`✅ Created NEW user for shop: ${shop}`);
+      console.log('🔍 New User shopifyData state:', !!savedUser.shopifyData);
     }
 
     // 7) Ensure an API key exists
