@@ -341,11 +341,28 @@ export const shopifyCallback = async (req, res) => {
     console.log('🔍 shopifyData present:', !!savedUser.shopifyData);
     console.log('🔐 accessToken (masked):', savedUser.shopifyData?.accessToken ? `${savedUser.shopifyData.accessToken.slice(0, 8)}...` : 'NONE');
 
-    // 9) Use the saved token (prefer persisted token)
-    const tokenToUse = savedUser?.shopifyData?.accessToken || access_token;
+    // ✅ ADD THIS - Verify token actually saved in DB
+    const verifyUser = await User.findById(savedUser._id)
+      .select('+shopifyData.accessToken')
+      .lean();
 
-    // 10) Sync products and register webhooks (both await - will throw if fails)
-    // ✅ CORRECT - Use the actual function
+    console.log('🔍 VERIFY FROM DB - shopifyData saved:', {
+      hasShopifyData: !!verifyUser.shopifyData,
+      hasAccessToken: !!verifyUser.shopifyData?.accessToken,
+      shopDomain: verifyUser.shopifyData?.shopDomain || 'NONE',
+      tokenPrefix: verifyUser.shopifyData?.accessToken?.slice(0, 15) || 'NONE'
+    });
+
+    // If token not saved, throw error
+    if (!verifyUser.shopifyData?.accessToken) {
+      console.error('❌ CRITICAL: Token not saved to database!');
+      throw new Error('Failed to save Shopify access token');
+    }
+
+    // 9) Use the saved token (prefer persisted token)
+    const tokenToUse = verifyUser.shopifyData.accessToken; // ← Use verified token
+
+    // 10) Sync products and register webhooks
     await syncShopifyData(savedUser._id, shop, tokenToUse);
     await registerShopifyWebhooks(shop, tokenToUse);
 
@@ -686,7 +703,9 @@ export const manualSync = async (req, res) => {
     // Explicitly select nested shopifyData.accessToken 
     console.log('🔍 manualSync: Investigating req.user:', req.user ? req.user._id : 'No req.user');
 
-    let user = await User.findById(req.user?._id).select('+shopifyData +shopifyData.accessToken').lean();
+    let user = await User.findById(req.user?._id)
+      .select('+shopifyData.accessToken')  // ← YE ADD KARO
+      .lean();
 
     if (!user) {
       console.log('❌ manualSync: User not found in DB with ID:', req.user?._id);
