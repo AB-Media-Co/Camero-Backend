@@ -1,0 +1,13 @@
+api_version = "2024-01"
+
+[[extensions]]
+
+uid = "288ab506-3769-fe13-0858-10bbb247f01cb0ff7c2a"
+
+type = "theme_app_extension"
+name = "Chat Widget"
+handle = "chat-widget"
+
+[extensions.capabilities]
+block_progress = true
+network_access = true

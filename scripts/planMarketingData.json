@@ -1,0 +1,85 @@
+{
+  "plans": [
+    {
+      "name": "Basic",
+      "slug": "basic",
+      "type": "PAID",
+      "order": 1,
+      "description": "Everything you need to get started with AI",
+      "price": 39,
+      "priceMonthly": 39,
+      "priceAnnual": 0,
+      "savePercentAnnual": 0,
+      "duration": 30,
+      "visitorsPerMonth": 10000,
+      "aiRepliesPerYear": 7200,
+      "productsSupported": 0,
+      "customDataSources": 60,
+      "quickFeatures": [
+        "Up to 10k visitors/month",
+        "Shopify Inbox integration",
+        "Basic AI nudges"
+      ],
+      "includesInbox": true,
+      "advancedNudges": false,
+      "aiQuizBuilder": false,
+      "aiPdpEmbeds": false,
+      "isPopular": false,
+      "isActive": true
+    },
+    {
+      "name": "Premium",
+      "slug": "premium",
+      "type": "PAID",
+      "order": 2,
+      "description": "Scale conversations with advanced AI",
+      "price": 79,
+      "priceMonthly": 79,
+      "priceAnnual": 0,
+      "savePercentAnnual": 0,
+      "duration": 30,
+      "visitorsPerMonth": 40000,
+      "aiRepliesPerYear": 30000,
+      "productsSupported": 0,
+      "customDataSources": 260,
+      "quickFeatures": [
+        "Up to 40k visitors/month",
+        "Advanced AI nudges",
+        "Quiz builder"
+      ],
+      "includesInbox": true,
+      "advancedNudges": true,
+      "aiQuizBuilder": true,
+      "aiPdpEmbeds": false,
+      "isPopular": true,
+      "isActive": true
+    },
+    {
+      "name": "VIP",
+      "slug": "vip",
+      "type": "PAID",
+      "order": 3,
+      "description": "Unlimited AI with priority support",
+      "price": 169,
+      "priceMonthly": 169,
+      "priceAnnual": 0,
+      "savePercentAnnual": 0,
+      "duration": 30,
+      "visitorsPerMonth": 80000,
+      "aiRepliesPerYear": 84000,
+      "productsSupported": 0,
+      "customDataSources": 0,
+      "quickFeatures": [
+        "Up to 80k visitors/month",
+        "Unlimited training",
+        "Priority support"
+      ],
+      "includesInbox": true,
+      "advancedNudges": true,
+      "aiQuizBuilder": true,
+      "aiPdpEmbeds": true,
+      "isPopular": false,
+      "isActive": true
+    }
+  ]
+}

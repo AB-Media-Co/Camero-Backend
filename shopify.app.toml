@@ -1,0 +1,29 @@
+client_id = "85d36c2bc325efc60deb33dd709aee20"
+name = "camero-testing"
+application_url = "https://camero.myabmedia.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-10"
+
+# One subscription per compliance topic, each pointing to the correct Express route
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request"]
+uri = "https://camero.myabmedia.com/api/shopify/webhooks/customers_data_request"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/redact"]
+uri = "https://camero.myabmedia.com/api/shopify/webhooks/customers_redact"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["shop/redact"]
+uri = "https://camero.myabmedia.com/api/shopify/webhooks/shop_redact"
+
+[access_scopes]
+scopes = "read_products,write_products,read_orders,read_customers"
+
+[auth]
+redirect_urls = [ "https://camero.myabmedia.com/api/shopify/callback" ]

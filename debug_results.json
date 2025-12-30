@@ -1,0 +1,71 @@
+[
+  {
+    "_id": "694b74ff5451be1e0cbc5c89",
+    "email": "admin@example.com",
+    "shopifyData": {
+      "hasAccessToken": false,
+      "accessTokenPrefix": null
+    },
+    "createdAt": "2025-12-24T05:07:11.207Z"
+  },
+  {
+    "_id": "694b74ff5451be1e0cbc5c8c",
+    "email": "staff@example.com",
+    "shopifyData": {
+      "hasAccessToken": false,
+      "accessTokenPrefix": null
+    },
+    "createdAt": "2025-12-24T05:07:11.333Z"
+  },
+  {
+    "_id": "694b74ff5451be1e0cbc5c8e",
+    "email": "john@example.com",
+    "storeUrl": "https://johnstore.com",
+    "shopifyData": {
+      "hasAccessToken": false,
+      "accessTokenPrefix": null
+    },
+    "createdAt": "2025-12-24T05:07:11.456Z"
+  },
+  {
+    "_id": "694b74ff5451be1e0cbc5c90",
+    "email": "jane@example.com",
+    "storeUrl": "https://janestore.com",
+    "shopifyData": {
+      "hasAccessToken": false,
+      "accessTokenPrefix": null
+    },
+    "createdAt": "2025-12-24T05:07:11.578Z"
+  },
+  {
+    "_id": "694b74ff5451be1e0cbc5c92",
+    "email": "bob@example.com",
+    "storeUrl": "https://bobshop.com",
+    "shopifyData": {
+      "hasAccessToken": false,
+      "accessTokenPrefix": null
+    },
+    "createdAt": "2025-12-24T05:07:11.706Z"
+  },
+  {
+    "_id": "694b76873063e883d1cdd583",
+    "email": "test2shopify@gamil.com",
+    "storeUrl": "https://camero-dev-test.myshopify.com",
+    "shopifyData": {
+      "shopDomain": "camero-dev-test.myshopify.com",
+      "hasAccessToken": true,
+      "accessTokenPrefix": "shpat"
+    },
+    "createdAt": "2025-12-24T05:13:43.002Z"
+  },
+  {
+    "_id": "69537e8cc069e10f81127ad2",
+    "email": "shopifytest2@gmail.com",
+    "storeUrl": "https://abm-dev-store.myshopify.com",
+    "shopifyData": {
+      "hasAccessToken": false,
+      "accessTokenPrefix": null
+    },
+    "createdAt": "2025-12-30T07:26:04.915Z"
+  }
+]
