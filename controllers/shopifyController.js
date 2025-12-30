@@ -276,34 +276,43 @@ export const shopifyCallback = async (req, res) => {
       console.log(`✅ Linked Shopify to existing user: ${savedUser._id}`);
     } else {
       // Create new user if absolutely no match found
-      const randomPassword = crypto.randomBytes(32).toString('hex');
 
       // Create minimal user first to ensure basic creation works
-      savedUser = new User({
-        name: shopData.shop_owner || shopData.name || `Shop ${shop}`,
-        email: shopData.email || `unknown+${shop}@example.com`,
-        storeUrl: `https://${shop}`,
-        password: randomPassword,
-        role: ROLES.CLIENT,
-        plan: defaultPlan._id,
-        planExpiry: planExpiryDate,
-        planStatus: PLAN_STATUS.ACTIVE,
-        isActive: true,
-        createdAt: now,
-        assistantConfig: {
-          name: `${shopData.name || shop} Assistant`,
-          personality: 'professional',
-          interfaceColor: '#17876E',
-          avatar: 'avatar-1.png'
-        }
-      });
+      // using create() directly for simplicity as we will update immediately
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      try {
+        savedUser = await User.create({
+          name: shopData.shop_owner || shopData.name || `Shop ${shop}`,
+          email: shopData.email || `unknown+${shop}@example.com`,
+          storeUrl: `https://${shop}`,
+          password: randomPassword,
+          role: ROLES.CLIENT,
+          plan: defaultPlan._id,
+          planExpiry: planExpiryDate,
+          planStatus: PLAN_STATUS.ACTIVE,
+          isActive: true,
+          createdAt: now,
+          assistantConfig: {
+            name: `${shopData.name || shop} Assistant`,
+            personality: 'professional',
+            interfaceColor: '#17876E',
+            avatar: 'avatar-1.png'
+          }
+        });
 
-      // Explicitly set shopifyData
-      savedUser.shopifyData = shopifyDataObj;
+        // Explicitly set shopifyData using atomic update to bypass any schema/save issues
+        savedUser = await User.findByIdAndUpdate(
+          savedUser._id,
+          { $set: { shopifyData: shopifyDataObj } },
+          { new: true }
+        );
 
-      await savedUser.save();
-      console.log(`✅ Created NEW user for shop: ${shop}`);
-      console.log('🔍 New User shopifyData state:', !!savedUser.shopifyData);
+        console.log(`✅ Created NEW user for shop: ${shop}`);
+        console.log('🔍 New User shopifyData state:', !!savedUser.shopifyData);
+      } catch (createError) {
+        console.error('❌ Failed to create user:', createError);
+        throw createError;
+      }
     }
 
     // 7) Ensure an API key exists
