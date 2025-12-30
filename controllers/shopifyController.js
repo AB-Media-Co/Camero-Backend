@@ -116,8 +116,7 @@ export const getInstallUrl = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Shop parameter is required' });
     }
 
-    // shopifyController.js - getInstallUrl mein:
-    const scopes = 'read_products,write_products,read_orders,write_orders,read_customers,read_customer_payment_methods';
+    const scopes = 'read_products,write_products,read_orders,read_customers';
     const redirectUri = `${config.backendUrl}/api/shopify/callback`;
     const nonce = crypto.randomBytes(16).toString('hex');
 
