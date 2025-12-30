@@ -265,14 +265,15 @@ export const shopifyCallback = async (req, res) => {
     console.log('🔍 shopifyCallback: Prepared shopifyDataObj:', JSON.stringify(shopifyDataObj, null, 2));
 
     if (savedUser) {
-      if (!savedUser.plan) {
-        savedUser.plan = defaultPlan._id;
-        savedUser.planExpiry = planExpiryDate;
-        savedUser.planStatus = PLAN_STATUS.ACTIVE;
-      }
-
-      savedUser.shopifyData = shopifyDataObj;
-      await savedUser.save();
+      // Atomic update for existing user to guarantee persistence
+      await User.findByIdAndUpdate(savedUser._id, {
+        $set: {
+          shopifyData: shopifyDataObj,
+          plan: savedUser.plan || defaultPlan._id,
+          planExpiry: savedUser.planExpiry || planExpiryDate,
+          planStatus: savedUser.planStatus || PLAN_STATUS.ACTIVE
+        }
+      });
       console.log(`✅ Linked Shopify to existing user: ${savedUser._id}`);
     } else {
       // Create new user if absolutely no match found
@@ -344,7 +345,8 @@ export const shopifyCallback = async (req, res) => {
     const tokenToUse = savedUser?.shopifyData?.accessToken || access_token;
 
     // 10) Sync products and register webhooks (both await - will throw if fails)
-    await syncShopifyProducts(savedUser._id, shop, tokenToUse);
+    // ✅ CORRECT - Use the actual function
+    await syncShopifyData(savedUser._id, shop, tokenToUse);
     await registerShopifyWebhooks(shop, tokenToUse);
 
     // 11) Log activity
