@@ -7,6 +7,8 @@ import WebsiteEmbedding from '../models/WebsiteEmbedding.js';
 import User from '../models/User.js';
 import { embedTexts, embedTextsBatched } from '../services/embeddingService.js';
 import { generateFaqsFromText } from '../services/aiService.js'; // Import AI Service
+import UnsatisfactoryQuery from '../models/UnsatisfactoryQuery.js';
+import axios from 'axios';
 
 // ----------------- Helpers -----------------
 
@@ -306,6 +308,260 @@ export const trainFromWebsite = async (req, res) => {
     });
   }
 };
+
+
+
+export const syncShopifyInfoPages = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('+shopifyData.accessToken').lean();
+
+    const shopDomain = user?.shopifyData?.shopDomain;
+    const accessToken = user?.shopifyData?.accessToken;
+
+    if (!shopDomain || !accessToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shopify not connected (missing shopDomain/accessToken)'
+      });
+    }
+
+    const apiBase = `https://${shopDomain}/admin/api/2024-01`;
+    const now = new Date();
+
+    // 1) Policies
+    const policiesRes = await axios.get(`${apiBase}/policies.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+    });
+    const policies = policiesRes.data?.policies || [];
+
+    // 2) Shop info
+    const shopRes = await axios.get(`${apiBase}/shop.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+    });
+    const shop = shopRes.data?.shop || {};
+
+    // 3) Pages from Admin (might be empty)
+    let pages = [];
+    try {
+      const pagesRes = await axios.get(`${apiBase}/pages.json?limit=250`, {
+        headers: { 'X-Shopify-Access-Token': accessToken },
+      });
+      pages = pagesRes.data?.pages || [];
+    } catch (e) {
+      console.warn('⚠️ pages.json fetch failed:', e.response?.status, e.response?.data || e.message);
+    }
+
+    // --- Build snapshots from Admin data ---
+    const stripHtml = (html = '') => html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+
+    const policySnapshots = policies.map((p) => ({
+      url: p.url || `shopify://policy/${p.handle || p.title || 'policy'}`,
+      title: p.title || p.handle || 'Policy',
+      summary: stripHtml(p.body || '').slice(0, 200),
+      contentPreview: stripHtml(p.body || ''),
+      headings: [],
+      capturedAt: now,
+      tokens: null,
+      status: 'success',
+      errorMessage: null,
+      isActive: true,
+      intent: mapPolicyTitleToIntent(p.title || p.handle || ''),
+    }));
+
+    const shopInfoText = [
+      `Store: ${shop.name || ''}`.trim(),
+      `Email: ${shop.email || ''}`.trim(),
+      `Phone: ${shop.phone || ''}`.trim(),
+      `Address: ${[shop.address1, shop.city, shop.province, shop.zip, shop.country].filter(Boolean).join(', ')}`.trim(),
+      `Domain: ${shop.domain || ''}`.trim(),
+    ].filter(Boolean).join('\n');
+
+    const shopSnapshot = {
+      url: `shopify://shop`,
+      title: 'Store information',
+      summary: shopInfoText.slice(0, 200),
+      contentPreview: shopInfoText,
+      headings: [],
+      capturedAt: now,
+      tokens: null,
+      status: 'success',
+      errorMessage: null,
+      isActive: true,
+      intent: 'Store information',
+    };
+
+    const pageSnapshots = pages.map((pg) => ({
+      url: `https://${shopDomain}/pages/${pg.handle}`,
+      title: pg.title,
+      summary: stripHtml(pg.body_html || '').slice(0, 200),
+      contentPreview: stripHtml(pg.body_html || ''),
+      headings: [],
+      capturedAt: now,
+      tokens: null,
+      status: 'success',
+      errorMessage: null,
+      isActive: true,
+      intent: inferIntentFromPage(pg.title, pg.handle),
+    }));
+
+    // 4) ✅ IMPORTANT: Crawl storefront URLs (covers /pages/shipping-policy even if pages.json = 0)
+    const storefrontUrls = [
+      `https://${shopDomain}/pages/shipping-policy`,
+      `https://${shopDomain}/pages/payment-methods`,
+      `https://${shopDomain}/pages/refund-policy`,
+      `https://${shopDomain}/pages/return-policy`,
+      `https://${shopDomain}/pages/contact-us`,
+      `https://${shopDomain}/pages/about-us`,
+      `https://${shopDomain}/pages/faq`,
+      `https://${shopDomain}/pages/order-tracking`,
+
+      // Shopify standard policy routes
+      `https://${shopDomain}/policies/shipping-policy`,
+      `https://${shopDomain}/policies/refund-policy`,
+      `https://${shopDomain}/policies/privacy-policy`,
+      `https://${shopDomain}/policies/terms-of-service`,
+    ];
+
+    const crawledSnapshotsRaw = await crawlWebsitePages({
+      urls: storefrontUrls,
+      maxPages: storefrontUrls.length,
+      timeoutMs: 45000,
+    });
+
+    const crawledSnapshots = (crawledSnapshotsRaw || []).map((s) => ({
+      url: s.url,
+      title: s.title || '',
+      summary: (s.summary || stripHtml(s.contentPreview || '')).slice(0, 200),
+      contentPreview: stripHtml(s.contentPreview || s.summary || ''),
+      headings: s.headings || [],
+      capturedAt: now,
+      tokens: s.tokens || null,
+      status: s.status || 'success',
+      errorMessage: s.errorMessage || null,
+      isActive: true,
+      intent: inferIntentFromPage(s.title || '', s.url || ''),
+    }));
+
+    // Merge all snapshots
+    const newSnapshots = [shopSnapshot, ...policySnapshots, ...pageSnapshots, ...crawledSnapshots];
+
+    // 5) Upsert snapshots in ProductKnowledge (merge by url)
+    let knowledge = await ProductKnowledge.findOne({ user: req.user._id });
+
+    if (!knowledge) {
+      knowledge = await ProductKnowledge.create({
+        user: req.user._id,
+        products: [],
+        faqs: [],
+        customResponses: [],
+        webSnapshots: newSnapshots,
+        lastSynced: now,
+      });
+    } else {
+      const existing = knowledge.webSnapshots || [];
+      const byUrl = new Map(existing.map(s => [s.url, s]));
+
+      for (const snap of newSnapshots) {
+        byUrl.set(snap.url, { ...(byUrl.get(snap.url) || {}), ...snap });
+      }
+
+      knowledge.webSnapshots = Array.from(byUrl.values());
+      knowledge.lastSynced = now;
+      await knowledge.save();
+    }
+
+    // 6) Generate FAQs from relevant snapshots (AND ✅ DEDUPE)
+    const relevant = newSnapshots.filter(s => s.status === 'success' && (s.contentPreview || '').trim().length > 50);
+
+    // existing FAQ keys to avoid duplicates
+    const existingFaqKeys = new Set(
+      (knowledge.faqs || []).map(f => `${(f.category || '').toLowerCase()}|${(f.question || '').toLowerCase()}`)
+    );
+
+    const allNewFaqs = [];
+
+    for (const snap of relevant) {
+      const category = snap.intent || 'Store information';
+      const text = snap.contentPreview || '';
+
+      const generated = await generateFaqsFromText(text, category);
+
+      if (Array.isArray(generated) && generated.length) {
+        for (const f of generated) {
+          const q = (f.question || '').trim();
+          const a = (f.answer || '').trim();
+          if (!q || !a) continue;
+
+          const key = `${category.toLowerCase()}|${q.toLowerCase()}`;
+          if (existingFaqKeys.has(key)) continue;
+
+          existingFaqKeys.add(key);
+
+          allNewFaqs.push({
+            question: q,
+            answer: a,
+            category,
+            isDraft: true,
+            isAiGenerated: true,
+            sourceUrl: snap.url,
+            confidence: 0.8,
+            createdAt: new Date()
+          });
+        }
+      }
+    }
+
+    if (allNewFaqs.length) {
+      await ProductKnowledge.findOneAndUpdate(
+        { user: req.user._id },
+        { $push: { faqs: { $each: allNewFaqs } } },
+        { new: true }
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: `Fetched ${policies.length} policies, ${pages.length} pages + shop info + crawled ${crawledSnapshotsRaw?.length || 0} storefront URLs.`,
+      data: {
+        policies: policies.length,
+        pages: pages.length,
+        crawled: crawledSnapshotsRaw?.length || 0,
+        faqsAdded: allNewFaqs.length,
+        shop: !!shop.name
+      },
+    });
+  } catch (err) {
+    console.error('syncShopifyInfoPages error:', err.response?.data || err.message);
+    const status = err.response?.status || 500;
+    return res.status(status).json({ success: false, message: err.message });
+  }
+};
+
+// Helpers
+const mapPolicyTitleToIntent = (title = '') => {
+  const t = title.toLowerCase();
+  if (t.includes('shipping') || t.includes('delivery')) return 'Shipping policy';
+  if (t.includes('refund') || t.includes('return')) return 'Returns & refund policy';
+  if (t.includes('privacy')) return 'Store information';
+  if (t.includes('terms')) return 'Store information';
+  return 'Store information';
+};
+
+const inferIntentFromPage = (title = '', handle = '') => {
+  const x = `${title} ${handle}`.toLowerCase();
+  if (x.includes('shipping') || x.includes('delivery')) return 'Shipping policy';
+  if (x.includes('refund') || x.includes('return')) return 'Returns & refund policy';
+  if (x.includes('contact')) return 'Contact information';
+  if (x.includes('about')) return 'Store information';
+  if (x.includes('faq') || x.includes('help')) return 'Store information';
+  if (x.includes('track')) return 'Order tracking';
+  if (x.includes('cancel')) return 'Order cancellation';
+  if (x.includes('modif')) return 'Order modification';
+  if (x.includes('offer') || x.includes('sale') || x.includes('discount')) return 'Sales & offers';
+  if (x.includes('payment')) return 'Payment methods';
+  return 'Store information';
+};
+
 
 
 // Check if website training is complete
@@ -673,7 +929,6 @@ export const deleteFaq = async (req, res) => {
   }
 };
 
-import UnsatisfactoryQuery from '../models/UnsatisfactoryQuery.js';
 
 // ... (existing imports)
 

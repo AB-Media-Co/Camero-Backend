@@ -520,6 +520,42 @@ const fetchShopifyProductsGraphQL = async (shop, accessToken) => {
   return allProducts;
 };
 
+const fetchShopifyCollectionsGraphQL = async (shop, accessToken) => {
+  let allCollections = [];
+  let cursor = null;
+  let hasNextPage = true;
+
+  const query = `
+    query getCollections($cursor: String) {
+      collections(first: 50, after: $cursor) {
+        pageInfo { hasNextPage endCursor }
+        edges {
+          node {
+            id
+            title
+            handle
+            updatedAt
+            image { url }
+            productsCount { count }
+          }
+        }
+      }
+    }
+  `;
+
+  while (hasNextPage) {
+    const data = await queryShopifyGraphQL(shop, accessToken, query, { cursor });
+    const c = data?.collections;
+    if (!c) break;
+
+    allCollections = allCollections.concat(c.edges.map(e => e.node));
+    hasNextPage = c.pageInfo.hasNextPage;
+    cursor = c.pageInfo.endCursor;
+  }
+
+  return allCollections;
+};
+
 const syncShopifyData = async (userId, shopDomain, accessToken) => {
   try {
     // 🎭 MOCK MODE CHECK 🎭
@@ -538,7 +574,7 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
 
     console.log(`⏳ Starting full sync for ${shopDomain}...`);
 
-    let products = [], customers = [], orders = [];
+    let products = [], customers = [], orders = [], collections = [];
     const errors = {};
 
     // 1. Fetch Products via GraphQL to avoid REST deprecation
@@ -550,6 +586,17 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
       console.error("❌ Failed to fetch products:", e.message);
       errors.products = e.message;
     }
+
+    // 1b) Fetch Collections via GraphQL
+    try {
+      collections = await fetchShopifyCollectionsGraphQL(shopDomain, accessToken);
+      console.log(`📚 Fetched ${collections.length} collections (via GraphQL)`);
+    } catch (e) {
+      if (e.response?.status === 401) throw e;
+      console.error("❌ Failed to fetch collections:", e.message);
+      errors.collections = e.message;
+    }
+
 
     // 2. Fetch Customers safely (Handle 403 Forbidden)
     try {
@@ -607,6 +654,16 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
       };
     });
 
+    const formattedCollections = collections.map(c => ({
+      id: getIdFromGid(c.id),
+      title: c.title,
+      handle: c.handle,
+      imageUrl: c.image?.url || '',
+      productsCount: c.productsCount?.count ?? 0,   // ✅ here
+      updatedAt: c.updatedAt,
+      url: `https://${shopDomain}/collections/${c.handle}`
+    }));
+
     const formattedCustomers = customers.map(c => ({
       id: c.id?.toString(),
       firstName: c.first_name,
@@ -641,14 +698,13 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
       updatedAt: o.updated_at
     }));
 
-    // 5. Save to ShopifyData Collection (Partial Update)
     const update = {
       shopDomain,
       lastSyncedAt: new Date()
     };
 
-    // Only update fields that successfully fetched
     if (products.length > 0) update.products = formattedProducts;
+    if (collections.length > 0) update.collections = formattedCollections;
     if (customers.length > 0) update.customers = formattedCustomers;
     if (orders.length > 0) update.orders = formattedOrders;
 
@@ -685,7 +741,8 @@ const syncShopifyData = async (userId, shopDomain, accessToken) => {
       products: products.length,
       customers: customers.length,
       orders: orders.length,
-      errors // Return errors to caller
+      collections: collections.length,
+      errors
     };
 
 

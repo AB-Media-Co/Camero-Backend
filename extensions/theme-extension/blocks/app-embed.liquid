@@ -1,15 +1,38 @@
+{% comment %}
+  Camero AI – Theme App Embed
+{% endcomment %}
+
+{% if block.settings.enabled %}
+  <script>
+    window.cameroConfig = {
+      apiKey: "{{ block.settings.api_key }}"
+    };
+  </script>
+
+  <script
+    src="https://camero.myabmedia.com/widget.js"
+    async
+  ></script>
+{% endif %}
+
+
 {% schema %}
 {
-  "name": "Chat Widget",
+  "name": "Camero AI Chat Widget",
   "target": "body",
-  "settings": []
+  "settings": [
+    {
+      "type": "checkbox",
+      "id": "enabled",
+      "label": "Enable Camero AI Widget",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "api_key",
+      "label": "Camero API Key",
+      "default": ""
+    }
+  ]
 }
 {% endschema %}
-
-<script>
-  window.CAMERO_CONFIG = {
-    shopDomain: "{{ shop.permanent_domain }}",
-    backendUrl: "https://camero.myabmedia.com"
-  };
-</script>
-<script src="https://camero.myabmedia.com/widget.js" defer="defer"></script>

@@ -60,9 +60,12 @@ const shopifyDataSchema = new mongoose.Schema(
             id: String,
             title: String,
             handle: String,
+            imageUrl: String,
             updatedAt: Date,
             rules: mongoose.Schema.Types.Mixed, // For smart collections
             productsCount: Number,
+            updatedAt: String,
+            url: String,
             isSmart: { type: Boolean, default: false },
             isSynced: { type: Boolean, default: true },
             recommendInChat: { type: Boolean, default: true }
