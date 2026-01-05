@@ -7,6 +7,11 @@
     window.cameroConfig = {
       apiKey: "{{ shop.metafields.camero.api_key | default: block.settings.api_key }}"
     };
+    console.log("Camero Debug:", {
+      metafield: "{{ shop.metafields.camero.api_key }}",
+      setting: "{{ block.settings.api_key }}",
+      final: window.cameroConfig.apiKey
+    });
   </script>
 
   <script
