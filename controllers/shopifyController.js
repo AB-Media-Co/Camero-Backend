@@ -336,6 +336,19 @@ export const shopifyCallback = async (req, res) => {
       console.warn('⚠️ API Key creation check failed:', e?.message || e);
     }
 
+    // 7.5) Inject API Key into Shopify Metafields (Auto-Embed Support)
+    try {
+      if (savedUser) {
+        // Fetch key again to be sure
+        const apiKeyDoc = await ApiKey.findOne({ user: savedUser._id }).lean();
+        if (apiKeyDoc && apiKeyDoc.key) {
+          await setShopifyMetafield(shop, access_token, 'camero', 'api_key', apiKeyDoc.key);
+        }
+      }
+    } catch (mfError) {
+      console.warn('⚠️ Metafield injection failed:', mfError.message);
+    }
+
     // 8) Log and proceed
     console.log('🔁 Upserted user id:', savedUser._id?.toString?.());
     console.log('🔍 shopifyData present:', !!savedUser.shopifyData);
@@ -435,6 +448,34 @@ const fetchShopifyResource = async (url, accessToken) => {
   }
   return allItems;
 };
+
+// ----------------- Metafield Helper -----------------
+async function setShopifyMetafield(shop, accessToken, namespace, key, value, type = 'single_line_text_field') {
+  try {
+    const response = await axios.post(
+      `https://${shop}/admin/api/2024-01/metafields.json`,
+      {
+        metafield: {
+          namespace,
+          key,
+          value,
+          type
+        }
+      },
+      {
+        headers: {
+          'X-Shopify-Access-Token': accessToken,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    console.log(`✅ Metafield set: ${namespace}.${key} for ${shop}`);
+    return response.data;
+  } catch (error) {
+    console.error(`❌ Failed to set metafield ${namespace}.${key}:`, error?.response?.data || error.message);
+    // Don't throw, just log
+  }
+}
 
 
 
@@ -787,6 +828,16 @@ export const manualSync = async (req, res) => {
     console.log(`🔐 manualSync: Token prefix: ${user.shopifyData.accessToken.substring(0, 15)}...`);
 
     const result = await syncShopifyData(user._id, user.shopifyData.shopDomain, user.shopifyData.accessToken);
+
+    // ✅ ROBUSTNESS: Inject API Key here too (in case it was missed or changed)
+    try {
+      const apiKeyDoc = await ApiKey.findOne({ user: user._id }).lean();
+      if (apiKeyDoc && apiKeyDoc.key) {
+        await setShopifyMetafield(user.shopifyData.shopDomain, user.shopifyData.accessToken, 'camero', 'api_key', apiKeyDoc.key);
+      }
+    } catch (mfError) {
+      console.warn('⚠️ Manual Sync Metafield injection failed:', mfError.message);
+    }
 
     const hasErrors = result.errors && Object.keys(result.errors).length > 0;
     const msg = `Synced ${result.products} products, ${result.customers} customers, ${result.orders} orders.` +
